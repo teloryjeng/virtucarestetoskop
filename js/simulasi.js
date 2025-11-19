@@ -279,49 +279,6 @@ const createScene = async function () {
             scene
         );
         
-        // --- [TAMBAHAN LOGIKA GRAB] ---
-        // Menambahkan behavior agar kita tahu kapan item dipegang/dilepas
-        const dragBehavior = new BABYLON.SixDofDragBehavior();
-        dragBehavior.dragDeltaRatio = 1;
-        dragBehavior.zDragFactor = 1;
-
-        // Agar tidak konflik dengan fisika saat dilepas
-        dragBehavior.detachCameraControls = true;
-
-        // Pasang behavior ke wrapper
-        wrapper.addBehavior(dragBehavior);
-
-        // Observer ini berjalan setiap frame (60x per detik) untuk memastikan status selalu benar
-        scene.onBeforeRenderObservable.add(() => {
-            // Pengecekan: Apakah ada pointer (mouse/VR controller) yang sedang memegang item ini?
-            // Jika currentDraggingPointerId bukan -1, berarti sedang dipegang.
-            if (dragBehavior.currentDraggingPointerId !== -1) {
-                
-                // KONDISI: SEDANG DIPEGANG (GRAB)
-                // Aktifkan Billboard Mode agar label/item menghadap kamera
-                if (wrapper.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_Y) {
-                    wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
-                }
-
-            } else {
-                
-                // KONDISI: TIDAK DIPEGANG (DIAM/DI MEJA)
-                // Pastikan Billboard Mode mati
-                if (wrapper.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_NONE) {
-                    wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-                    
-                    // [Opsional] Reset rotasi tegak lurus saat dilepas agar rapi
-                    // wrapper.rotation.x = 0;
-                    // wrapper.rotation.z = 0;
-                    
-                    // [PENTING UNTUK VR] Hentikan sisa momentum putaran fisika agar tidak 'melintir' di meja
-                    if (wrapper.physicsImpostor) {
-                        wrapper.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
-                    }
-                }
-            }
-        });
-
         // 4. Muat model GLB
         BABYLON.SceneLoader.ImportMesh("", "assets/", glbFile, scene, function (meshes) {
             const rootMesh = meshes[0];
@@ -396,20 +353,17 @@ const createScene = async function () {
     }
 
     function attachStethoscopeToCamera() {
-        // Cek apakah stetoskop ada, sudah terpasang, atau sedang processing
         if (!stethoscopeMesh || isStethoscopeAttached || isProcessing) return;
 
-        // --- PERBAIKAN: MATIKAN DRAG BEHAVIOR ---
-        // Jika behavior masih aktif, dia akan mencoba mengupdate posisi stetoskop
-        // yang menyebabkan crash saat kita mengubah parent.
-        if (stethoscopeDragBehavior) {
-            stethoscopeDragBehavior.detach(); // Lepaskan kontrol drag
-        }
-
+        // LANGKAH PENTING 1: Dispatch event kustom untuk melepas item dari sistem grabbing (di grab.js)
+        // Ini memastikan item dilepas dari tangan VR jika sedang dipegang.
+        const customEvent = new CustomEvent('releaseStethoscope', { detail: { mesh: stethoscopeMesh } });
+        window.dispatchEvent(customEvent);
+        
         const activeCamera = getActiveCamera();
         if (!activeCamera) return;
 
-        // Nonaktifkan fisika
+        // Nonaktifkan fisika sementara
         if (stethoscopeMesh.physicsImpostor) {
             stethoscopeMesh.physicsImpostor.dispose();
             stethoscopeMesh.physicsImpostor = null;
@@ -420,20 +374,14 @@ const createScene = async function () {
         // Parent-kan stetoskop ke kamera
         stethoscopeMesh.setParent(activeCamera);
         
-        // --- PERBAIKAN: RESET QUATERNION ---
-        // Error 'toRotationMatrix' terjadi karena konflik tipe rotasi.
-        // Kita paksa null agar menggunakan Euler Angle (rotation.x/y/z) biasa.
-        stethoscopeMesh.rotationQuaternion = null; 
-
         // Atur posisi relatif ke kamera (di depan kamera)
-        stethoscopeMesh.position = new BABYLON.Vector3(0, -0.2, 0.5);
-        stethoscopeMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0); // Sesuaikan rotasi agar pas dilihat
+        stethoscopeMesh.position = new BABYLON.Vector3(0, -0.3, 0.5);
         
-        // Sembunyikan mesh (sesuai logikamu)
+        // Set isVisible = false untuk SEMUA mesh dalam hierarki (Membuatnya menghilang)
         findAllMeshesAndSetVisibility(stethoscopeMesh, false);
         
         isStethoscopeAttached = true;
-        console.log("Stetoskop terpasang ke kamera.");
+        console.log("Stetoskop terpasang ke kamera (tidak terlihat).");
     }
     
     function detachStethoscopeFromCamera() {
@@ -488,13 +436,7 @@ const createScene = async function () {
             { mass: mass, restitution: restitution },
             mesh.getScene()
         );
-        // --- PERBAIKAN: AKTIFKAN KEMBALI DRAG BEHAVIOR ---
-        // Khusus untuk stetoskop, pasang lagi behavior-nya
-        if (mesh.name === "stethoscopeWrapper" || mesh === stethoscopeMesh) {
-            if (stethoscopeDragBehavior) {
-                stethoscopeDragBehavior.attach(mesh);
-            }
-        }
+        
         console.log(`[RESET] Item ${mesh.name} berhasil diatur ulang.`);
     }
     
@@ -586,42 +528,46 @@ const createScene = async function () {
     );
     
     // =====================================
-    // CUSTOM GRAB LOGIC UNTUK STETOSKOP
+    // SIMPLE GRAB SYSTEM UNTUK STETOSKOP
     // =====================================
+    let isStethoscopeGrabbed = false;
     
-    // Simpan drag behavior asli stetoskop
-    let stethoscopeDragBehavior = null;
-    stethoscopeMesh.behaviors.forEach(behavior => {
-        if (behavior instanceof BABYLON.SixDofDragBehavior) {
-            stethoscopeDragBehavior = behavior;
-        }
-    });
-
-    if (stethoscopeDragBehavior) {
-        // Override onDragStart
-        stethoscopeDragBehavior.onDragStartObservable.add(() => {
-            console.log("Stetoskop di-grab...");
-            
-            // --- PERBAIKAN: GUNAKAN TIMEOUT ---
-            // Beri jeda 10ms agar engine Babylon menyelesaikan perhitungan fisika/drag frame ini
-            // sebelum kita mematikan fisika dan memindah parent.
-            setTimeout(() => {
-                attachStethoscopeToCamera();
-            }, 10);
-        });
-        
-        // Hapus bagian onDragEndObservable karena kita sudah mendetach behavior di fungsi attach
-    }
-
-    // Backup: Action Manager untuk mouse click
+    // Action Manager untuk grab dengan mouse
     stethoscopeMesh.actionManager = new BABYLON.ActionManager(scene);
     stethoscopeMesh.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickTrigger, function () {
-            if (isProcessing || isStethoscopeAttached) return;
-            console.log("Stetoskop di-klik (mouse), langsung attach ke kamera");
-            attachStethoscopeToCamera();
+            if (isProcessing) return;
+            
+            if (!isStethoscopeGrabbed && !isStethoscopeAttached) {
+                // Grab stetoskop
+                attachStethoscopeToCamera();
+                isStethoscopeGrabbed = true;
+            }
         })
     );
+    
+    // Untuk VR, gunakan approach yang lebih sederhana
+    if (xr) {
+        // Setup VR grab dengan approach yang lebih aman
+        const originalStethoscopePosition = stethoscopeMesh.position.clone();
+        const originalStethoscopeRotation = stethoscopeMesh.rotation.clone();
+        
+        // Observer untuk mendeteksi ketika stetoskop di-grab di VR
+        scene.onBeforeRenderObservable.add(() => {
+            if (xr && xr.input && !isStethoscopeGrabbed && !isStethoscopeAttached) {
+                // Cek jarak stetoskop dengan controller VR
+                xr.input.controllers.forEach(controller => {
+                    if (controller.grip) {
+                        const distance = BABYLON.Vector3.Distance(controller.grip.position, stethoscopeMesh.position);
+                        if (distance < 0.5) { // Jarak threshold untuk grab
+                            attachStethoscopeToCamera();
+                            isStethoscopeGrabbed = true;
+                        }
+                    }
+                });
+            }
+        });
+    }
 
     // =====================================
     // Logic Interaksi 
@@ -666,6 +612,7 @@ const createScene = async function () {
             function () {
                 if (!isProcessing && !isHeartbeatPlaying && isStethoscopeAttached) {
                     isProcessing = true;
+                    isStethoscopeGrabbed = false;
                     
                     // Detach stetoskop dari kamera terlebih dahulu
                     detachStethoscopeFromCamera();
@@ -726,9 +673,229 @@ const createScene = async function () {
     );
     
     // =====================================
-    // UI & TYPEWRITER (SISA KODE YANG SAMA)
+    // Drag Behavior untuk Item Lainnya (Thermometer & Tensimeter)
     // =====================================
-    // ... (kode UI dan typewriter yang sama seperti sebelumnya) ...
+    function setupStandardDragBehavior(mesh) {
+        const dragBehavior = new BABYLON.SixDofDragBehavior();
+        dragBehavior.dragDeltaRatio = 1;
+        dragBehavior.zDragFactor = 1;
+        dragBehavior.detachCameraControls = true;
+
+        mesh.addBehavior(dragBehavior);
+
+        // Observer untuk mengatur billboard mode
+        scene.onBeforeRenderObservable.add(() => {
+            if (dragBehavior.currentDraggingPointerId !== -1) {
+                // KONDISI: SEDANG DIPEGANG (GRAB)
+                if (mesh.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_Y) {
+                    mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
+                }
+            } else {
+                // KONDISI: TIDAK DIPEGANG (DIAM/DI MEJA)
+                if (mesh.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_NONE) {
+                    mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+                    
+                    // Hentikan sisa momentum putaran fisika agar tidak 'melintir' di meja
+                    if (mesh.physicsImpostor) {
+                        mesh.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
+                    }
+                }
+            }
+        });
+    }
+
+    // Terapkan drag behavior standar untuk thermometer dan tensimeter
+    setupStandardDragBehavior(thermometerMesh);
+    setupStandardDragBehavior(tensimeterMesh);
+    
+    // =====================================
+    // UI & TYPEWRITER 
+    // =====================================
+    let currentState = 1;
+    let dialogTitle;
+    let dialogBody;
+    let lanjutButton;
+    let finalButtonsContainer;
+    let charIndex = 0;
+    let isTyping = false;
+    let currentTextTarget = "";
+    let typeObserver = null;
+    const TYPING_SPEED = 3;
+
+    // TEKS
+    const TAHAP_1_JUDUL = "Halo, Calon Dokter!";
+    const TAHAP_1_BODY = "Selamat Datang di Simulasi Pemeriksaan Pasien";
+    const TAHAP_2_BODY = "Pasien baru saja datang ke ruang pemeriksaan dengan keluhan pusing dan lemas setelah berdiri lama. Lakukan pemeriksaan dasar untuk mengetahui penyebab keluhan pasien.";
+    const TAHAP_3_JUDUL = "SIMULASI";
+    const TAHAP_3_BODY = "AYO SIMULASI!!!";
+    const TAHAP_4_BODY = "Langkah 1: Periksa detak jantung dan paru pasien menggunakan stetoskop";
+    const TAHAP_5_BODY = "Langkah 2: Lanjutkan pemeriksaan tekanan darah menggunakan tensimeter digital.";
+    const TAHAP_6_BODY = "Langkah 3: Pastikan pasien tidak mengalami infeksi dengan memeriksa suhu tubuh menggunakan termometer digital.";
+    const TAHAP_7_BODY = "Baik, setelah anda melakukan pemeriksaan terhadap pasien, dapat disimpulkan bahwa diagnosis awal dari pasien adalah pasien kemungkinan mengalami hipotensi ringan akibat dari kelelahan dan kurangnya asupan gizi. Maka tindakan yang dapat dilakukan adalah memberikan cairan infus elektrolit guna membantu menstabilkan tekanan darah pasien.";
+    const TAHAP_8_BODY = "Simulasi telah selesai! Selamat, anda telah berhasil melakukan pemeriksaan terhadap pasien dengan menggunakan alat medis dasar.";
+
+    // TYPEWRITER
+    function typeWriterEffect(targetText, textBlock, scene, onComplete = () => {}) {
+        if (isTyping && typeObserver) {
+            scene.onBeforeRenderObservable.remove(typeObserver);
+        }
+        isTyping = true;
+        charIndex = 0;
+        currentTextTarget = targetText;
+        textBlock.text = "";
+        lanjutButton.isHitTestVisible = false;
+
+        typeObserver = scene.onBeforeRenderObservable.add(() => {
+            if (charIndex <= currentTextTarget.length) {
+                if (scene.getEngine().frameId % TYPING_SPEED === 0) {
+                    textBlock.text = currentTextTarget.substring(0, charIndex);
+                    charIndex++;
+                }
+            } else {
+                isTyping = false;
+                scene.onBeforeRenderObservable.remove(typeObserver);
+                typeObserver = null;
+                onComplete();
+            }
+        });
+    }
+
+    // UI PLANE
+    const uiPlane = BABYLON.MeshBuilder.CreatePlane("uiPlane", scene);
+    uiPlane.position = new BABYLON.Vector3(-19, 3, 28);
+    uiPlane.rotation.x = -0.2;
+    uiPlane.scaling.scaleInPlace(4);
+
+    const adt = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
+        uiPlane,
+        3000,
+        3000
+    );
+
+    // PANEL
+    const mainPanel = new BABYLON.GUI.Rectangle("mainPanel");
+    mainPanel.widthInPixels = 1920;
+    mainPanel.heightInPixels = 1080;
+    mainPanel.background = "rgba(20, 50, 130, 0.5)";
+    mainPanel.cornerRadius = 50;
+    mainPanel.thickness = 10;
+    mainPanel.color = "white";
+    adt.addControl(mainPanel);
+
+    const stackPanel = new BABYLON.GUI.StackPanel();
+    stackPanel.widthInPixels = 1800;
+    mainPanel.addControl(stackPanel);
+
+    dialogTitle = new BABYLON.GUI.TextBlock();
+    dialogTitle.color = "#FFD700";
+    dialogTitle.fontSizeInPixels = 90;
+    dialogTitle.fontStyle = "bold";
+    dialogTitle.heightInPixels = 150;
+    dialogTitle.textWrapping = true;
+    stackPanel.addControl(dialogTitle);
+
+    dialogBody = new BABYLON.GUI.TextBlock();
+    dialogBody.color = "white";
+    dialogBody.fontSizeInPixels = 70;
+    dialogBody.heightInPixels = 500;
+    dialogBody.textWrapping = true;
+    stackPanel.addControl(dialogBody);
+
+    lanjutButton = BABYLON.GUI.Button.CreateSimpleButton("lanjut", "Lanjut");
+    lanjutButton.widthInPixels = 500;
+    lanjutButton.heightInPixels = 150;
+    lanjutButton.background = "#5CB85C";
+    lanjutButton.color = "white";
+    lanjutButton.fontSizeInPixels = 50;
+    lanjutButton.onPointerClickObservable.add(handleLanjutClick);
+    stackPanel.addControl(lanjutButton);
+
+    finalButtonsContainer = new BABYLON.GUI.StackPanel();
+    finalButtonsContainer.isVertical = false;
+    finalButtonsContainer.spacing = 50;
+    finalButtonsContainer.isVisible = false;
+    stackPanel.addControl(finalButtonsContainer);
+
+    // STATE MACHINE
+    function handleLanjutClick() {
+        if (isTyping) return;
+        
+        // **PERBAIKAN SUARA:** Buka kunci Audio Context pada klik pertama
+        if (currentState === 1) { 
+            if (engine.audioEngine && !engine.audioEngine.isUnlocked) {
+                engine.audioEngine.unlock();
+                console.log("Audio Context unlocked on first click.");
+            }
+        }
+
+        currentState++;
+
+        if (currentState === 2) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_2_BODY, dialogBody, scene, () => {
+                lanjutButton.isHitTestVisible = true;
+            });
+        }
+    
+        if (currentState === 3) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_3_JUDUL, dialogTitle, scene, () => {
+                typeWriterEffect(TAHAP_3_BODY, dialogBody, scene, () => {
+                    lanjutButton.isHitTestVisible = true;
+                });
+            });
+        }
+        if (currentState === 4) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_4_BODY, dialogBody, scene, () => {
+                lanjutButton.isHitTestVisible = true;
+            });
+        }
+        if (currentState === 5) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_5_BODY, dialogBody, scene, () => {
+                lanjutButton.isHitTestVisible = true;
+            });
+        }
+        if (currentState === 6) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_6_BODY, dialogBody, scene, () => {
+                lanjutButton.isHitTestVisible = true;
+            });
+        }
+        if (currentState === 7) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_7_BODY, dialogBody, scene, () => {
+                lanjutButton.isHitTestVisible = true;
+            });
+        }
+        if (currentState === 8) {
+            dialogTitle.text = "";
+            typeWriterEffect(TAHAP_8_BODY, dialogBody, scene, () => {
+                   lanjutButton.textBlock.text = "Selesai";
+                lanjutButton.isHitTestVisible = true;
+                lanjutButton.onPointerClickObservable.clear(); // Hapus listener lama
+                lanjutButton.onPointerClickObservable.add(() => {
+                     window.location.href = "index.html"; // Navigasi kembali
+                });
+            });
+        }
+    }
+
+    const grabBehavior = new BABYLON.SixDofDragBehavior();
+    grabBehavior.allowMultiPointer = true;
+    uiPlane.addBehavior(grabBehavior);
+
+    typeWriterEffect(TAHAP_1_JUDUL, dialogTitle, scene, () => {
+        typeWriterEffect(TAHAP_1_BODY, dialogBody, scene, () => {
+            lanjutButton.isHitTestVisible = true;
+        });
+    });
+    
+    // Pemanggilan fungsi grabLogic (didefinisikan di grab.js)
+    if (typeof setupGrabLogic !== 'undefined') {
+        setupGrabLogic(scene, xr);
+    }
 
     return scene;
 };
