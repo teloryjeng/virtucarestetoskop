@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Simulasi</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    #renderCanvas { width: 100%; height: 100%; touch-action: none; }
+  </style>
+
+  <!-- Babylon.js Core + GLTF Loader + Physics Engine -->
+        <script src="https://cdn.babylonjs.com/babylon.js"></script> 
+        <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script> 
+        <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script> 
+        <script src="https://cdn.babylonjs.com/cannon.js"></script>
+        <script src="https://cdn.babylonjs.com/features/babylonjs.features.js"></script>
+  
+  <audio controls autoplay loop>
+        <source src="audio/BgmSimulasi.mp3" type="audio/mpeg">
+        Browser Anda tidak mendukung elemen audio HTML5.
+    </audio> 
+</head>
+<body>
+  <canvas id="renderCanvas"></canvas>
+
+  <!-- file JS eksternal untuk fisika -->
+  <script src="js/physics.js"></script>
+
+  <!-- file JS UTAMA yang berisi script besar kamu -->
+   <script src="js/grab.js"></script>
+   
+   <script src="js/simulasi.js"></script>
+   
+
+</body>
+</html>
