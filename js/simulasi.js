@@ -42,12 +42,7 @@ const createScene = async function () {
     let stethoscopeMesh = null;
     // VARIABEL BARU UNTUK ATTACH STETOSKOP
     let isStethoscopeAttached = false; // Status apakah stetoskop sedang terpasang ke kamera
-    // Variabel untuk memantau kapan trigger dilepas
-    let stethoscopeFollowObserver = null;
-    let stethoPointerId = -1; // Menyimpan ID controller yang memegang stetoskop
-let stethoReleaseObserver = null; // Observer untuk mendeteksi lepas tombol
-let stethoOrbitAngles = { x: 0, y: 0 }; 
-const ORBIT_SPEED = 0.05;
+
     // Aktifkan Fisika (CannonJS)
     const gravityVector = new BABYLON.Vector3(0, -9.81, 0);
     // Pastikan library CannonJS sudah dimuat di HTML
@@ -399,183 +394,108 @@ const ORBIT_SPEED = 0.05;
         // Gunakan kamera XR jika ada, atau kamera universal default
         return xr && xr.baseExperience.state === BABYLON.WebXRState.IN_XR ? xr.baseExperience.camera : camera;
     }
-    function activateStethoscopeMode(pointerId) {
-        if (isStethoscopeAttached || isProcessing) return;
-        
-        isStethoscopeAttached = true;
-        stethoPointerId = pointerId;
 
-        // Reset sudut orbit ke 0 (tepat di depan muka) saat awal nempel
-        stethoOrbitAngles = { x: 0, y: 0 };
+    function attachStethoscopeToCamera() {
+        // Cek apakah stetoskop ada, sudah terpasang, atau sedang processing
+        if (!stethoscopeMesh || isStethoscopeAttached || isProcessing) return;
 
-        // 1. Detach Drag Behavior
+        // --- PERBAIKAN: MATIKAN DRAG BEHAVIOR ---
+        // Jika behavior masih aktif, dia akan mencoba mengupdate posisi stetoskop
+        // yang menyebabkan crash saat kita mengubah parent.
         if (stethoscopeDragBehavior) {
-            stethoscopeDragBehavior.detach();
+            stethoscopeDragBehavior.detach(); // Lepaskan kontrol drag
         }
 
-        // 2. Matikan Fisika
+        const activeCamera = getActiveCamera();
+        if (!activeCamera) return;
+
+        // Nonaktifkan fisika
         if (stethoscopeMesh.physicsImpostor) {
             stethoscopeMesh.physicsImpostor.dispose();
             stethoscopeMesh.physicsImpostor = null;
         }
+
         stethoscopeMesh.checkCollisions = false;
 
-        // 3. Observer Posisi & Rotasi (LOGIKA BARU)
-        const activeCamera = getActiveCamera();
+        // Parent-kan stetoskop ke kamera
+        stethoscopeMesh.setParent(activeCamera);
         
-        stethoscopeFollowObserver = scene.onBeforeRenderObservable.add(() => {
-            if (activeCamera) {
-                // --- A. BACA INPUT THUMBSTICK (JOYSTICK) ---
-                if (xr && xr.input && xr.input.controllers) {
-                    xr.input.controllers.forEach(controller => {
-                        // Cek apakah controller punya komponen thumbstick
-                        if (controller.inputSource.gamepad) {
-                            const axes = controller.inputSource.gamepad.axes;
-                            // axes[2] biasanya X (Kiri-Kanan), axes[3] biasanya Y (Atas-Bawah)
-                            // Note: Mapping bisa beda tergantung headset, ini standar umum XR
-                            if (axes.length >= 4) {
-                                // Update sudut berdasarkan input joystick
-                                // Kita pakai threshold 0.1 untuk deadzone (agar tidak goyang sendiri)
-                                if (Math.abs(axes[2]) > 0.1) stethoOrbitAngles.y += axes[2] * ORBIT_SPEED;
-                                if (Math.abs(axes[3]) > 0.1) stethoOrbitAngles.x += axes[3] * ORBIT_SPEED;
-                            }
-                        }
-                    });
-                }
+        // --- PERBAIKAN: RESET QUATERNION ---
+        // Error 'toRotationMatrix' terjadi karena konflik tipe rotasi.
+        // Kita paksa null agar menggunakan Euler Angle (rotation.x/y/z) biasa.
+        stethoscopeMesh.rotationQuaternion = null; 
 
-                // --- B. BATASI SUDUT (CLAMP) ---
-                // Agar tidak berputar 360 derajat sampai ke belakang kepala
-                stethoOrbitAngles.x = BABYLON.Scalar.Clamp(stethoOrbitAngles.x, -0.5, 0.5); // Atas-Bawah terbatas
-                stethoOrbitAngles.y = BABYLON.Scalar.Clamp(stethoOrbitAngles.y, -1.0, 1.0); // Kiri-Kanan terbatas
-
-                // --- C. HITUNG VEKTOR POSISI (ORBIT) ---
-                // 1. Mulai dengan vektor offset lokal berdasarkan sudut joystick
-                // x = kiri/kanan, y = atas/bawah, z = jarak ke depan (0.5 meter)
-                const localOffset = new BABYLON.Vector3(
-                    Math.sin(stethoOrbitAngles.y) * 0.5, // Geser Kiri/Kanan
-                    Math.sin(stethoOrbitAngles.x) * 0.5 - 0.2, // Geser Atas/Bawah + offset tinggi awal (-0.2)
-                    0.5 // Jarak kedalaman
-                );
-
-                // 2. Transformasikan vektor lokal ini mengikuti arah hadap Kamera
-                // Ini yang membuat titik tumpunya adalah kamera
-                const worldMatrix = activeCamera.getWorldMatrix();
-                const finalPosition = BABYLON.Vector3.TransformCoordinates(localOffset, worldMatrix);
-
-                // --- D. TERAPKAN KE MESH ---
-                stethoscopeMesh.position.copyFrom(finalPosition);
-
-                // Opsional: Membuat stetoskop selalu menghadap ke arah kamera (LookAt)
-                // Agar posisinya natural seperti sedang memeriksa
-                stethoscopeMesh.lookAt(activeCamera.position);
-                
-                // Koreksi rotasi agar bagian depan stetoskop yang menghadap kamera
-                // (Sesuaikan 'Math.PI' ini jika stetoskopnya terbalik)
-                stethoscopeMesh.rotation.y += Math.PI; 
-                
-                // Kunci rotasi ke Quaternion agar aman saat transisi physics
-                stethoscopeMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerVector(stethoscopeMesh.rotation);
-            }
-        });
-
-        // 4. Observer Input: Deteksi manual kapan tombol dilepas
-        stethoReleaseObserver = scene.onPointerObservable.add((pointerInfo) => {
-            if (pointerInfo.type === BABYLON.PointerEventTypes.POINTERUP) {
-                if (pointerInfo.event.pointerId === stethoPointerId) {
-                    console.log("Trigger dilepas manual -> Release");
-                    releaseStethoscopeMode();
-                }
-            }
-        });
-
-        console.log("Stetoskop Mode Aktif. Gunakan Thumbstick untuk memutar.");
+        // Atur posisi relatif ke kamera (di depan kamera)
+        stethoscopeMesh.position = new BABYLON.Vector3(0, -0.2, 0.5);
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0); // Sesuaikan rotasi agar pas dilihat
+        
+        // Sembunyikan mesh (sesuai logikamu)
+        findAllMeshesAndSetVisibility(stethoscopeMesh, false);
+        
+        isStethoscopeAttached = true;
+        console.log("Stetoskop terpasang ke kamera.");
     }
     
+    function detachStethoscopeFromCamera() {
+        if (!stethoscopeMesh || !isStethoscopeAttached) return;
+
+        // Set isVisible = true untuk SEMUA mesh dalam hierarki (Membuatnya muncul kembali)
+        findAllMeshesAndSetVisibility(stethoscopeMesh, true);
+        
+        // Hapus parenting
+        stethoscopeMesh.setParent(null);
+        
+        // Panggil fungsi reset untuk mengembalikannya ke meja dengan fisika aktif
+        resetItem(stethoscopeMesh, ITEM_POSITIONS.stethoscope.pos, ITEM_POSITIONS.stethoscope.rot);
+
+        isStethoscopeAttached = false;
+        console.log("Stetoskop dilepaskan dari kamera dan di-reset (terlihat kembali).");
+    }
     
     // =====================================
     // Fungsi Reset Item
     // =====================================
-    function releaseStethoscopeMode() {
-        if (!isStethoscopeAttached) return;
-
-        // 1. Hapus Observer Posisi (Stop nempel kamera)
-        if (stethoscopeFollowObserver) {
-            scene.onBeforeRenderObservable.remove(stethoscopeFollowObserver);
-            stethoscopeFollowObserver = null;
-        }
-
-        // 2. Hapus Observer Input (Stop memantau tombol)
-        if (stethoReleaseObserver) {
-            scene.onPointerObservable.remove(stethoReleaseObserver);
-            stethoReleaseObserver = null;
-        }
-
-        // 3. Reset posisi ke meja & fisika
-        resetItem(stethoscopeMesh, ITEM_POSITIONS.stethoscope.pos, ITEM_POSITIONS.stethoscope.rot);
-
-        // 4. [PENTING] Pasang kembali Drag Behavior agar bisa di-grab lagi nanti
-        // Kita pasang setelah resetItem selesai mengatur fisika
-        if (stethoscopeDragBehavior) {
-            stethoscopeDragBehavior.attach(stethoscopeMesh);
-        }
-
-        isStethoscopeAttached = false;
-        stethoPointerId = -1;
-        console.log("Stetoskop Dilepas dan Reset.");
-    }
     function resetItem(mesh, initialPosition, initialRotation) {
         if (!mesh) return;
-        
-        // 1. Reset Mode Visual
         mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+        // Pastikan semua mesh terlihat saat di-reset
         findAllMeshesAndSetVisibility(mesh, true);
         
-        // 2. Hapus Fisika Lama
+        // 1. Hapus impostor sementara 
         if (mesh.physicsImpostor) {
             mesh.physicsImpostor.dispose();
             mesh.physicsImpostor = null; 
         }
         
+        // 2. Hapus parenting 
         mesh.setParent(null); 
         
-        // 3. Reset Posisi
+        // 3. Atur ulang posisi dan rotasi mesh secara manual
         mesh.position.copyFrom(initialPosition);
+        // Penting: Gunakan quaternion jika model dirotasi secara kompleks. Untuk saat ini, kita gunakan rotation.
+        mesh.rotationQuaternion = null; 
+        mesh.rotation.copyFrom(initialRotation); 
         
-        // --- PERBAIKAN 1: GUNAKAN QUATERNION ---
-        // SixDofDragBehavior bekerja lebih stabil dengan Quaternion. 
-        // Jangan set ke null, tapi konversi rotasi awal (Euler) ke Quaternion.
-        if (initialRotation) {
-            mesh.rotationQuaternion = BABYLON.Quaternion.FromEulerVector(initialRotation);
-        } else {
-            mesh.rotationQuaternion = BABYLON.Quaternion.Identity();
-        }
-
         mesh.checkCollisions = true;
         
-        // 4. Buat Fisika Baru
+        // 4. Buat ulang impostor dengan properti yang sama
+        const mass = 0.01; 
+        const restitution = 0.4; 
+        
         mesh.physicsImpostor = new BABYLON.PhysicsImpostor(
             mesh,
             BABYLON.PhysicsImpostor.BoxImpostor,
-            { mass: 0.01, restitution: 0.4 },
+            { mass: mass, restitution: restitution },
             mesh.getScene()
         );
-
-        // --- PERBAIKAN 2: JEDA SEBELUM RE-ATTACH ---
-        // Beri waktu 50ms - 100ms agar mesin fisika (CannonJS) selesai "membangun" body baru
-        // sebelum DragBehavior mencoba mengontrolnya lagi.
-        if (mesh === stethoscopeMesh && stethoscopeDragBehavior) {
-            // Pastikan detach dulu untuk keamanan (double safety)
-            stethoscopeDragBehavior.detach();
-
-            setTimeout(() => {
-                if (mesh.physicsImpostor) {
-                    stethoscopeDragBehavior.attach(mesh);
-                    console.log("Drag Behavior stetoskop diaktifkan kembali.");
-                }
-            }, 100); 
+        // --- PERBAIKAN: AKTIFKAN KEMBALI DRAG BEHAVIOR ---
+        // Khusus untuk stetoskop, pasang lagi behavior-nya
+        if (mesh.name === "stethoscopeWrapper" || mesh === stethoscopeMesh) {
+            if (stethoscopeDragBehavior) {
+                stethoscopeDragBehavior.attach(mesh);
+            }
         }
-        
-        console.log(`[RESET] Item ${mesh.name} reset.`);
+        console.log(`[RESET] Item ${mesh.name} berhasil diatur ulang.`);
     }
     
     function resetAllItems() {
@@ -677,52 +597,22 @@ const ORBIT_SPEED = 0.05;
         }
     });
 
-    // ... (Di bagian bawah kode, tempat setup behavior) ...
-
     if (stethoscopeDragBehavior) {
-        // Bersihkan observer lama
-        stethoscopeDragBehavior.onDragStartObservable.clear();
-        stethoscopeDragBehavior.onDragEndObservable.clear();
-
-        // Observer yang berjalan setiap frame sebelum render
-        scene.onBeforeRenderObservable.add(() => {
-            // Cek apakah sedang di-grab (pointer ID bukan -1)
-            if (stethoscopeDragBehavior.currentDraggingPointerId !== -1) {
-                
-                const activeCamera = getActiveCamera();
-                if (activeCamera && stethoscopeMesh.rotationQuaternion) {
-
-                    // 1. Ambil Rotasi Kamera (Target dasar)
-                    let targetRotation = activeCamera.absoluteRotation.clone();
-
-                    // 2. [PENTING] Koreksi Arah (Offset)
-                    // Agar stetoskop menghadap ke depan (pasien), bukan ke muka kita.
-                    // Kita putar 180 derajat di sumbu Y (membelakangi kamera).
-                    // Ubah Math.PI ini jika posisinya masih kurang pas.
-                    let correction = BABYLON.Quaternion.FromEulerAngles(0, Math.PI, 0); 
-                    targetRotation = targetRotation.multiply(correction);
-
-                    // 3. Terapkan ke Mesh (Fisika akan ikut otomatis)
-                    stethoscopeMesh.rotationQuaternion.copyFrom(targetRotation);
-
-                    // 4. Matikan gaya putar sisa fisika
-                    // Agar tidak bergetar saat tangan bergerak
-                    if (stethoscopeMesh.physicsImpostor) {
-                        stethoscopeMesh.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
-                        
-                        // HAPUS baris .setQuaternion() yang error itu.
-                        // Kita tidak membutuhkannya karena langkah no. 3 sudah cukup.
-                    }
-                }
-            }
-        });
-
-        // Debugging log
+        // Override onDragStart
         stethoscopeDragBehavior.onDragStartObservable.add(() => {
-            console.log("Grabbed: Rotasi dikunci mengikuti Kamera.");
+            console.log("Stetoskop di-grab...");
+            
+            // --- PERBAIKAN: GUNAKAN TIMEOUT ---
+            // Beri jeda 10ms agar engine Babylon menyelesaikan perhitungan fisika/drag frame ini
+            // sebelum kita mematikan fisika dan memindah parent.
+            setTimeout(() => {
+                attachStethoscopeToCamera();
+            }, 10);
         });
+        
+        // Hapus bagian onDragEndObservable karena kita sudah mendetach behavior di fungsi attach
     }
-    
+
     // Backup: Action Manager untuk mouse click
     stethoscopeMesh.actionManager = new BABYLON.ActionManager(scene);
     stethoscopeMesh.actionManager.registerAction(
