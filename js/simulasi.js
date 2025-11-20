@@ -40,6 +40,7 @@ const createScene = async function () {
     let thermometerMesh = null;
     let tensimeterMesh = null;
     let stethoscopeMesh = null;
+    let chestpieceMesh = null;
     // VARIABEL BARU UNTUK ATTACH STETOSKOP
     let isStethoscopeAttached = false; // Status apakah stetoskop sedang terpasang ke kamera
     let rightVRController = null; // Untuk menyimpan controller kanan
@@ -228,7 +229,19 @@ let tubeUpdateObserver = null;
             scene
         );
     });
-    
+    BABYLON.SceneLoader.ImportMesh("", "assets/", "chestpiece.glb", scene, function (meshes) {
+        chestpieceMesh = meshes[0];
+        
+        // Atur skala agar sesuai (mungkin perlu disesuaikan dengan model aslinya)
+        // Sesuaikan angka ini jika model terlalu besar/kecil
+        chestpieceMesh.scaling = new BABYLON.Vector3(0.04, 0.04, 0.04); 
+        
+        // Pastikan collision mati agar tidak mengganggu grab
+        chestpieceMesh.getChildMeshes().forEach(m => m.checkCollisions = false);
+        
+        // SEMBUNYIKAN DI AWAL (Hanya muncul saat dipegang)
+        findAllMeshesAndSetVisibility(chestpieceMesh, false);
+    });
     // ... (GUI, SOUND, TARGET) ...
     const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
     const tempText = new BABYLON.GUI.TextBlock("tempText", "");
@@ -437,37 +450,34 @@ let tubeUpdateObserver = null;
         return xr && xr.baseExperience.state === BABYLON.WebXRState.IN_XR ? xr.baseExperience.camera : camera;
     }
     function updateTubeLogic() {
-    if (!isStethoscopeAttached || !stethoscopeMesh) return;
+    if (!isStethoscopeAttached) return; 
 
-    // Titik Awal: Sedikit di bawah kamera (seolah-olah di leher/telinga)
     const activeCam = getActiveCamera();
+    // Titik Awal: Sedikit di bawah kamera (leher)
     const startPoint = activeCam.position.add(new BABYLON.Vector3(0, -0.3, 0)); 
 
-    // Titik Akhir: Posisi Stetoskop saat ini
-    const endPoint = stethoscopeMesh.absolutePosition;
+    // Titik Akhir: Ke Chestpiece yang ada di tangan
+    let endPoint;
+    if (chestpieceMesh && chestpieceMesh.isVisible) {
+        endPoint = chestpieceMesh.absolutePosition;
+    } else {
+        // Fallback jika chestpiece error
+        endPoint = stethoscopeMesh.absolutePosition;
+    }
 
     // Buat jalur (path) sederhana lurus atau sedikit melengkung (Bezier bisa ditambahkan jika ingin lebih advance)
     const path = [startPoint, endPoint];
-
-    // Jika tube belum ada, buat baru. Jika sudah, update bentuknya.
+    
     if (!stethoscopeTube) {
         stethoscopeTube = BABYLON.MeshBuilder.CreateTube("stethoTube", {
-            path: path,
-            radius: 0.015, // Ketebalan selang
-            updatable: true
+            path: path, radius: 0.015, updatable: true
         }, scene);
-        
-        // Beri warna hitam/abu gelap karet
         const rubberMat = new BABYLON.StandardMaterial("rubberMat", scene);
         rubberMat.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.1);
         stethoscopeTube.material = rubberMat;
-        stethoscopeTube.checkCollisions = false;
     } else {
-        // Update bentuk tali mengikuti pergerakan
         BABYLON.MeshBuilder.CreateTube("stethoTube", {
-            path: path,
-            radius: 0.015,
-            instance: stethoscopeTube 
+            path: path, radius: 0.015, instance: stethoscopeTube 
         });
     }
 }
@@ -491,51 +501,48 @@ function stopTubeSimulation() {
     function attachStethoscopeToController() {
     if (!stethoscopeMesh || isStethoscopeAttached || isProcessing) return;
 
-    // Pastikan kita punya controller kanan. Jika tidak (misal mode PC biasa), fallback ke kamera
+    // Tentukan target (Controller Kanan)
     let parentTarget = null;
-    
     if (rightVRController) {
-        // Tempel ke GRIP (pegangan) atau POINTER controller
         parentTarget = rightVRController.grip || rightVRController.pointer; 
     } else {
-        // Fallback untuk debug di PC (non-VR)
-        parentTarget = getActiveCamera();
+        parentTarget = getActiveCamera(); // Fallback untuk debug PC
     }
 
     if (!parentTarget) return;
 
-    // Matikan Drag Behavior agar tidak konflik
-    if (stethoscopeDragBehavior) {
-        stethoscopeDragBehavior.detach();
-    }
-
-    // Matikan Fisika
+    // 1. Matikan Fisika & Drag Behavior pada model utama (yang di meja)
+    if (stethoscopeDragBehavior) stethoscopeDragBehavior.detach();
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
         stethoscopeMesh.physicsImpostor = null;
     }
     stethoscopeMesh.checkCollisions = false;
 
-    // --- PROSES ATTACH ---
-    stethoscopeMesh.setParent(parentTarget);
-    
-    // Reset Rotasi agar mengikuti tangan
-    stethoscopeMesh.rotationQuaternion = null; 
-    
-    // TWEAK POSISI: Atur ini agar pas di genggaman tangan virtual
-    // Anda mungkin perlu mengubah angka-angka ini sesuai bentuk model 3D Anda
-    stethoscopeMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
-    stethoscopeMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0); 
+    // 2. SEMBUNYIKAN MODEL UTAMA (YANG KAKU)
+    // Kita sembunyikan wrapper dan isinya
+    findAllMeshesAndSetVisibility(stethoscopeMesh, false);
 
-    // Tampilkan Mesh (karena kita ingin melihat ujungnya di tangan)
-    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
+    // 3. MUNCULKAN & TEMPELKAN CHESTPIECE KE KONTROLER
+    if (chestpieceMesh) {
+        chestpieceMesh.setParent(parentTarget);
+        
+        // ATUR POSISI DI TANGAN (Tweak angka ini agar pas di genggaman)
+        chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
+        // Atur rotasi agar menghadap ke bawah/depan sesuai keinginan
+        chestpieceMesh.rotationQuaternion = null;
+        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI / 2, 0, 0); 
+
+        // Munculkan visualnya
+        findAllMeshesAndSetVisibility(chestpieceMesh, true);
+    }
 
     isStethoscopeAttached = true;
     
-    // --- MULAI SIMULASI TALI ---
+    // 4. Mulai Simulasi Tali Hitam
     startTubeSimulation();
 
-    console.log("Stetoskop terpasang ke Controller Kanan.");
+    console.log("Stetoskop dipegang (Visual Chestpiece Aktif).");
 }
     
     function detachStethoscopeFromCamera() { // Bisa direname jadi detachStethoscope
@@ -556,42 +563,53 @@ function stopTubeSimulation() {
     function releaseStethoscopeInPlace() {
     if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-    // 1. Hentikan simulasi tali/selang
+    // 1. Hentikan Tali
     stopTubeSimulation();
 
-    // 2. Lepaskan parent (detach dari tangan)
+    // 2. SEMBUNYIKAN CHESTPIECE & LEPAS DARI TANGAN
+    if (chestpieceMesh) {
+        findAllMeshesAndSetVisibility(chestpieceMesh, false);
+        
+        // Simpan posisi terakhir chestpiece sebelum di-detach
+        // Ini agar model utuh muncul tepat di tempat kita melepasnya
+        const dropPosition = chestpieceMesh.absolutePosition.clone();
+        const dropRotation = chestpieceMesh.absoluteRotationQuaternion ? chestpieceMesh.absoluteRotationQuaternion.clone() : chestpieceMesh.rotation.clone();
+        
+        chestpieceMesh.setParent(null);
+
+        // 3. PINDAHKAN MODEL UTAMA KE POSISI DROP
+        stethoscopeMesh.position.copyFrom(dropPosition);
+        // Kita bisa set rotasi dasar atau copy rotasi tangan (opsional)
+        stethoscopeMesh.rotationQuaternion = null;
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
+    }
+
+    // 4. MUNCULKAN KEMBALI MODEL UTAMA
+    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
     stethoscopeMesh.setParent(null);
     
-    // 3. Update status
-    isStethoscopeAttached = false;
-
-    // 4. Aktifkan kembali Fisika agar jatuh natural
-    // Hapus impostor lama jika ada glitch
+    // 5. Aktifkan Fisika agar jatuh
+    stethoscopeMesh.checkCollisions = true;
+    
+    // Hapus impostor lama jika ada sisa
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
     }
     
-    // Kembalikan visibilitas penuh
-    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
-    
-    // Aktifkan collision
-    stethoscopeMesh.checkCollisions = true;
-
-    // Pasang kembali Fisika (Impostor)
     stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
         stethoscopeMesh,
         BABYLON.PhysicsImpostor.BoxImpostor,
-        { mass: 0.1, restitution: 0.2 }, // Beri massa agar jatuh
+        { mass: 0.1, restitution: 0.2 }, 
         scene
     );
 
-    // 5. PENTING: Pasang kembali Drag Behavior 
-    // Agar bisa diambil lagi setelah jatuh
+    // 6. Pasang lagi Drag Behavior agar bisa diambil lagi
     if (stethoscopeDragBehavior) {
         stethoscopeDragBehavior.attach(stethoscopeMesh);
     }
 
-    console.log("Stetoskop dilepas di posisi saat ini.");
+    isStethoscopeAttached = false;
+    console.log("Stetoskop dilepas, kembali ke model utuh.");
 }
     // =====================================
     // Fungsi Reset Item
