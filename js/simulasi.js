@@ -685,7 +685,7 @@ function stopTubeSimulation() {
     } 
     thermometerMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
         0,              // Sumbu X (Nunduk/Dongak)
-        -Math.PI / 2,   // Sumbu Y (Putar Kiri -90 derajat)
+        Math.PI / 2,   // Sumbu Y (Putar Kiri -90 derajat)
         0               // Sumbu Z (Miring)
     ); 
 
@@ -1041,6 +1041,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
