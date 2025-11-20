@@ -138,41 +138,44 @@ let tubeUpdateObserver = null;
         });
         console.log("✅ WebXR aktif");
         xr.input.onControllerAddedObservable.add((controller) => {
+            // Cek apakah ini controller kanan
             if (controller.inputSource.handedness === 'right') {
                 rightVRController = controller;
                 console.log("Controller Kanan Terdeteksi!");
 
-                // Dapatkan komponen Trigger (biasanya main component)
-                const triggerComponent = controller.motionController.getComponent(BABYLON.WebXRControllerComponent.TRIGGER);
+                // FUNGSI PEMBANTU: Pasang listener ke trigger setelah motionController siap
+                const initTriggerListener = (motionController) => {
+                    if (!motionController) return;
+                    
+                    // Cari komponen trigger (biasanya 'xr-standard-trigger' atau 'trigger')
+                    const triggerComponent = motionController.getComponent("xr-standard-trigger");
 
-                if (triggerComponent) {
-                    triggerComponent.onButtonStateChangedObservable.add((component) => {
-                        // LOGIKA SAAT TRIGGER DITEKAN (GRAB)
-                        if (component.pressed) {
-                            // Cek jarak antara controller dan stetoskop untuk validasi grab
-                            // Kita gunakan grip (pegangan) atau pointer controller
-                            const controllerPos = controller.grip ? controller.grip.absolutePosition : controller.pointer.absolutePosition;
-                            const stethoPos = stethoscopeMesh.absolutePosition;
-                            
-                            // Hitung jarak (misal: harus lebih dekat dari 30cm/0.3 unit)
-                            const distance = BABYLON.Vector3.Distance(controllerPos, stethoPos);
+                    if (triggerComponent) {
+                        triggerComponent.onButtonStateChangedObservable.add((component) => {
+                            // JIKA TRIGGER DILEPAS (pressed === false) & STETOSKOP SEDANG NEMPEL
+                            if (component.pressed === false && isStethoscopeAttached) {
+                                console.log("Trigger dilepas, menjatuhkan stetoskop...");
+                                releaseStethoscopeInPlace(); 
+                            }
+                        });
+                        console.log("Listener Trigger berhasil dipasang.");
+                    } else {
+                        console.warn("Komponen Trigger tidak ditemukan pada controller ini.");
+                    }
+                };
 
-                            // Jika dekat dan belum terpasang, lakukan Attach
-                            if (distance < 0.4 && !isStethoscopeAttached && !isProcessing) {
-                                attachStethoscopeToController();
-                            }
-                        } 
-                        // LOGIKA SAAT TRIGGER DILEPAS (DROP)
-                        else {
-                            if (isStethoscopeAttached) {
-                                // Panggil fungsi drop yang baru dibuat
-                                dropStethoscope();
-                            }
-                        }
+                // LOGIKA UTAMA: Cek ketersediaan motionController
+                if (controller.motionController) {
+                    // Jika sudah siap langsung pasang
+                    initTriggerListener(controller.motionController);
+                } else {
+                    // Jika belum siap, tunggu event inisialisasi
+                    controller.onMotionControllerInitObservable.add((motionController) => {
+                        initTriggerListener(motionController);
                     });
                 }
             }
-});
+        });
         const xrCamera = xr.baseExperience.camera;
         xrCamera.position.y = 4;
         xrCamera.applyGravity = true;
@@ -550,35 +553,46 @@ function stopTubeSimulation() {
     isStethoscopeAttached = false;
     console.log("Stetoskop dilepas.");
 }
-    function dropStethoscope() {
-        if (!stethoscopeMesh || !isStethoscopeAttached) return;
+    function releaseStethoscopeInPlace() {
+    if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-        // 1. Hentikan simulasi selang/tali
-        stopTubeSimulation();
+    // 1. Hentikan simulasi tali/selang
+    stopTubeSimulation();
 
-        // 2. Lepaskan dari parent (Controller)
-        stethoscopeMesh.setParent(null);
+    // 2. Lepaskan parent (detach dari tangan)
+    stethoscopeMesh.setParent(null);
+    
+    // 3. Update status
+    isStethoscopeAttached = false;
 
-        // 3. Aktifkan kembali visibilitas (jaga-jaga)
-        findAllMeshesAndSetVisibility(stethoscopeMesh, true);
-
-        // 4. Hapus Impostor lama jika ada sisa
-        if (stethoscopeMesh.physicsImpostor) {
-            stethoscopeMesh.physicsImpostor.dispose();
-        }
-
-        // 5. Pasang kembali Fisika agar jatuh natural
-        stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
-            stethoscopeMesh,
-            BABYLON.PhysicsImpostor.BoxImpostor,
-            { mass: 0.1, restitution: 0.2, friction: 0.5 }, // Beri massa agar jatuh
-            scene
-        );
-        
-        // Reset status
-        isStethoscopeAttached = false;
-        console.log("Stetoskop dilepas (Drop).");
+    // 4. Aktifkan kembali Fisika agar jatuh natural
+    // Hapus impostor lama jika ada glitch
+    if (stethoscopeMesh.physicsImpostor) {
+        stethoscopeMesh.physicsImpostor.dispose();
     }
+    
+    // Kembalikan visibilitas penuh
+    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
+    
+    // Aktifkan collision
+    stethoscopeMesh.checkCollisions = true;
+
+    // Pasang kembali Fisika (Impostor)
+    stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
+        stethoscopeMesh,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0.1, restitution: 0.2 }, // Beri massa agar jatuh
+        scene
+    );
+
+    // 5. PENTING: Pasang kembali Drag Behavior 
+    // Agar bisa diambil lagi setelah jatuh
+    if (stethoscopeDragBehavior) {
+        stethoscopeDragBehavior.attach(stethoscopeMesh);
+    }
+
+    console.log("Stetoskop dilepas di posisi saat ini.");
+}
     // =====================================
     // Fungsi Reset Item
     // =====================================
@@ -717,7 +731,7 @@ function stopTubeSimulation() {
     // =====================================
     
     // Simpan drag behavior asli stetoskop
-    /*let stethoscopeDragBehavior = null;
+    let stethoscopeDragBehavior = null;
     stethoscopeMesh.behaviors.forEach(behavior => {
         if (behavior instanceof BABYLON.SixDofDragBehavior) {
             stethoscopeDragBehavior = behavior;
@@ -733,7 +747,7 @@ function stopTubeSimulation() {
         }, 10);
     });
 }
-*/
+
     // Backup: Action Manager untuk mouse click
     stethoscopeMesh.actionManager = new BABYLON.ActionManager(scene);
     stethoscopeMesh.actionManager.registerAction(
