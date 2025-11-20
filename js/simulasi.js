@@ -566,32 +566,36 @@ function stopTubeSimulation() {
     // 1. Hentikan Tali
     stopTubeSimulation();
 
-    // 2. SEMBUNYIKAN CHESTPIECE & LEPAS DARI TANGAN
+    // 2. SWAP VISUAL: Sembunyikan Chestpiece, Munculkan Model Utuh
     if (chestpieceMesh) {
         findAllMeshesAndSetVisibility(chestpieceMesh, false);
         
-        // Simpan posisi terakhir chestpiece sebelum di-detach
-        // Ini agar model utuh muncul tepat di tempat kita melepasnya
+        // Ambil posisi & rotasi terakhir dari tangan
         const dropPosition = chestpieceMesh.absolutePosition.clone();
-        const dropRotation = chestpieceMesh.absoluteRotationQuaternion ? chestpieceMesh.absoluteRotationQuaternion.clone() : chestpieceMesh.rotation.clone();
-        
+        // Kita ambil rotasi, tapi nol-kan sumbu X dan Z agar stetoskop tegak (opsional, agar jatuhnya enak)
+        const dropRotation = chestpieceMesh.rotationQuaternion 
+            ? chestpieceMesh.rotationQuaternion.toEulerAngles() 
+            : chestpieceMesh.rotation.clone();
+            
         chestpieceMesh.setParent(null);
 
-        // 3. PINDAHKAN MODEL UTAMA KE POSISI DROP
+        // Pindahkan model utuh ke posisi tangan
         stethoscopeMesh.position.copyFrom(dropPosition);
-        // Kita bisa set rotasi dasar atau copy rotasi tangan (opsional)
+        // Reset rotasi stetoskop utuh
         stethoscopeMesh.rotationQuaternion = null;
-        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, dropRotation.y, 0); 
     }
 
-    // 4. MUNCULKAN KEMBALI MODEL UTAMA
+    // 3. Munculkan Stetoskop Utuh & Lepas Parent
     findAllMeshesAndSetVisibility(stethoscopeMesh, true);
     stethoscopeMesh.setParent(null);
     
-    // 5. Aktifkan Fisika agar jatuh
+    // 4. PENTING: Matikan Billboard Mode Secara Paksa
+    stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+
+    // 5. Aktifkan Fisika (Agar jatuh)
     stethoscopeMesh.checkCollisions = true;
     
-    // Hapus impostor lama jika ada sisa
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
     }
@@ -603,10 +607,15 @@ function stopTubeSimulation() {
         scene
     );
 
-    // 6. Pasang lagi Drag Behavior agar bisa diambil lagi
-    if (stethoscopeDragBehavior) {
-        stethoscopeDragBehavior.attach(stethoscopeMesh);
-    }
+    // 6. FIX MASALAH ROTASI: Delay Re-attach Drag Behavior
+    // Kita beri jeda 1 detik sebelum stetoskop bisa diambil lagi.
+    // Ini mencegah stetoskop 'lengket' atau berputar mengikuti wajah tepat setelah dilepas.
+    setTimeout(() => {
+        if (stethoscopeDragBehavior && stethoscopeMesh) {
+            stethoscopeDragBehavior.attach(stethoscopeMesh);
+            console.log("Stetoskop siap diambil kembali.");
+        }
+    }, 1000); // Jeda 1000ms (1 detik)
 
     isStethoscopeAttached = false;
     console.log("Stetoskop dilepas, kembali ke model utuh.");
