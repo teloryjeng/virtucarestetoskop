@@ -684,10 +684,10 @@ function stopTubeSimulation() {
         thermometerMesh.rotationQuaternion = BABYLON.Quaternion.Identity();
     } 
     thermometerMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
-        -Math.PI/2,              // Sumbu X (Nunduk/Dongak)
-        -Math.PI/2,   // Sumbu Y (Putar Kiri -90 derajat)
-        0               // Sumbu Z (Miring)
-    ); 
+        360,              // Sumbu X (Nunduk/Dongak)
+        -Math.PI / 2,   // Sumbu Y (Putar Kiri -90 derajat)
+        0              // Sumbu Z (Miring)
+    );
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -1024,11 +1024,189 @@ function releaseThermometer() {
             }
         )
     );
+    // =====================================
+  // UI & TYPEWRITER (TETAP SAMA)
+  // =====================================
+  let currentState = 1;
+  let dialogTitle;
+  let dialogBody;
+  let lanjutButton;
+  let finalButtonsContainer;
+  let charIndex = 0;
+  let isTyping = false;
+  let currentTextTarget = "";
+  let typeObserver = null;
+  const TYPING_SPEED = 3;
+
+  // TEKS
+  const TAHAP_1_JUDUL = "Halo, Calon Dokter!";
+  const TAHAP_1_BODY = "Selamat Datang di Simulasi Pemeriksaan Pasien";
+  const TAHAP_2_BODY = "Pasien baru saja datang ke ruang pemeriksaan dengan keluhan pusing dan lemas setelah berdiri lama. Lakukan pemeriksaan dasar untuk mengetahui penyebab keluhan pasien.";
+  const TAHAP_3_JUDUL = "SIMULASI";
+  const TAHAP_3_BODY = "AYO SIMULASI!!!";
+  const TAHAP_4_BODY = "Langkah 1: Periksa detak jantung dan paru pasien menggunakan stetoskop";
+  const TAHAP_5_BODY = "Langkah 2: Lanjutkan pemeriksaan tekanan darah menggunakan tensimeter digital.";
+  const TAHAP_6_BODY = "Langkah 3: Pastikan pasien tidak mengalami infeksi dengan memeriksa suhu tubuh menggunakan termometer digital.";
+  const TAHAP_7_BODY = "Baik, setelah melakukan pemeriksaan terhadap pasien, dapat disimpulkan bahwa diagnosis awal dari pasien adalah pasien kemungkinan mengalami hipotensi ringan akibat dari kelelahan dan kurangnya asupan gizi. Maka tindakan yang dapat dilakukan adalah memberikan cairan infus elektrolit guna membantu menstabilkan tekanan darah pasien.";
+  const TAHAP_8_BODY = "Simulasi telah selesai! Selamat, telah berhasil melakukan pemeriksaan terhadap pasien dengan menggunakan alat medis dasar.";
+
+  // TYPEWRITER
+  function typeWriterEffect(targetText, textBlock, scene, onComplete = () => {}) {
+    if (isTyping && typeObserver) {
+      scene.onBeforeRenderObservable.remove(typeObserver);
+    }
+    isTyping = true;
+    charIndex = 0;
+    currentTextTarget = targetText;
+    textBlock.text = "";
+    lanjutButton.isHitTestVisible = false;
+
+    typeObserver = scene.onBeforeRenderObservable.add(() => {
+      if (charIndex <= currentTextTarget.length) {
+        if (scene.getEngine().frameId % TYPING_SPEED === 0) {
+          textBlock.text = currentTextTarget.substring(0, charIndex);
+          charIndex++;
+        }
+      } else {
+        isTyping = false;
+        scene.onBeforeRenderObservable.remove(typeObserver);
+        typeObserver = null;
+        onComplete();
+      }
+    });
+  }
+
+  // UI PLANE
+  const uiPlane = BABYLON.MeshBuilder.CreatePlane("uiPlane", scene);
+  uiPlane.position = new BABYLON.Vector3(-19, 3, 28);
+  uiPlane.rotation.x = -0.2;
+  uiPlane.scaling.scaleInPlace(4);
+
+  const adt = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
+    uiPlane,
+    3000,
+    3000
+  );
+
+  // PANEL
+  const mainPanel = new BABYLON.GUI.Rectangle("mainPanel");
+  mainPanel.widthInPixels = 1920;
+  mainPanel.heightInPixels = 1080;
+  mainPanel.background = "rgba(20, 50, 130, 0.5)";
+  mainPanel.cornerRadius = 50;
+  mainPanel.thickness = 10;
+  mainPanel.color = "white";
+  adt.addControl(mainPanel);
+
+  const stackPanel = new BABYLON.GUI.StackPanel();
+  stackPanel.widthInPixels = 1800;
+  mainPanel.addControl(stackPanel);
+
+  dialogTitle = new BABYLON.GUI.TextBlock();
+  dialogTitle.color = "#FFD700";
+  dialogTitle.fontSizeInPixels = 90;
+  dialogTitle.fontStyle = "bold";
+  dialogTitle.heightInPixels = 150;
+  dialogTitle.textWrapping = true;
+  stackPanel.addControl(dialogTitle);
+
+  dialogBody = new BABYLON.GUI.TextBlock();
+  dialogBody.color = "white";
+  dialogBody.fontSizeInPixels = 70;
+  dialogBody.heightInPixels = 500;
+  dialogBody.textWrapping = true;
+  stackPanel.addControl(dialogBody);
+
+  lanjutButton = BABYLON.GUI.Button.CreateSimpleButton("lanjut", "Lanjut");
+  lanjutButton.widthInPixels = 500;
+  lanjutButton.heightInPixels = 150;
+  lanjutButton.background = "#5CB85C";
+  lanjutButton.color = "white";
+  lanjutButton.fontSizeInPixels = 50;
+  lanjutButton.onPointerClickObservable.add(handleLanjutClick);
+  stackPanel.addControl(lanjutButton);
+
+  finalButtonsContainer = new BABYLON.GUI.StackPanel();
+  finalButtonsContainer.isVertical = false;
+  finalButtonsContainer.spacing = 50;
+  finalButtonsContainer.isVisible = false;
+  stackPanel.addControl(finalButtonsContainer);
+
+  // STATE MACHINE
+  function handleLanjutClick() {
+    if (isTyping) return;
     
-    // =====================================
-    // UI & TYPEWRITER (SISA KODE YANG SAMA)
-    // =====================================
-    // ... (kode UI dan typewriter yang sama seperti sebelumnya) ...
+    // **PERBAIKAN SUARA:** Buka kunci Audio Context pada klik pertama
+    if (currentState === 1) { 
+      if (engine.audioEngine && !engine.audioEngine.isUnlocked) {
+        engine.audioEngine.unlock();
+        console.log("Audio Context unlocked on first click.");
+      }
+    }
+
+    currentState++;
+
+    if (currentState === 2) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_2_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+  
+    if (currentState === 3) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_3_JUDUL, dialogTitle, scene, () => {
+        typeWriterEffect(TAHAP_3_BODY, dialogBody, scene, () => {
+          lanjutButton.isHitTestVisible = true;
+        });
+      });
+    }
+    if (currentState === 4) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_4_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 5) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_5_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 6) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_6_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 7) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_7_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 8) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_8_BODY, dialogBody, scene, () => {
+         lanjutButton.textBlock.text = "Selesai";
+        lanjutButton.isHitTestVisible = true;
+        lanjutButton.onPointerClickObservable.clear(); // Hapus listener lama
+        lanjutButton.onPointerClickObservable.add(() => {
+          window.location.href = "index.html"; // Navigasi kembali
+        });
+      });
+    }
+  }
+
+  const grabBehavior = new BABYLON.SixDofDragBehavior();
+  grabBehavior.allowMultiPointer = true;
+  uiPlane.addBehavior(grabBehavior);
+
+  typeWriterEffect(TAHAP_1_JUDUL, dialogTitle, scene, () => {
+    typeWriterEffect(TAHAP_1_BODY, dialogBody, scene, () => {
+      lanjutButton.isHitTestVisible = true;
+    });
+  });
 
     return scene;
 };
@@ -1041,31 +1219,3 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
