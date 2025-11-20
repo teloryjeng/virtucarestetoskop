@@ -82,13 +82,10 @@ let tubeUpdateObserver = null;
     camera.keysLeft.push(65); camera.keysRight.push(68);
 
     let xr = null;
+    // Helper untuk mematikan sensor sentuh pada seluruh bagian model
     function setHierarchicalPickable(rootMesh, isPickable) {
         if (!rootMesh) return;
-        
-        // Set induk
         rootMesh.isPickable = isPickable;
-        
-        // Set semua anak (recursive)
         rootMesh.getChildMeshes().forEach(child => {
             child.isPickable = isPickable;
         });
@@ -389,13 +386,15 @@ let tubeUpdateObserver = null;
     thermometerMesh = createGrabbableItem("thermometer", "thermometer.glb", 
         ITEM_POSITIONS.thermometer.pos, 
         new BABYLON.Vector3(0.25, 0.25, 0.25),
-        ITEM_POSITIONS.thermometer.rot
+        ITEM_POSITIONS.thermometer.rot,
+        false
     );
 
     tensimeterMesh = createGrabbableItem("tensimeter", "tensimeter.glb", 
         ITEM_POSITIONS.tensimeter.pos, 
         new BABYLON.Vector3(0.3, 0.3, 0.3),
-        ITEM_POSITIONS.tensimeter.rot
+        ITEM_POSITIONS.tensimeter.rot,
+        false
     );
 
     // Infus (Static, mass 0)
@@ -486,52 +485,56 @@ function stopTubeSimulation() {
     }
 }
     function attachStethoscopeToController() {
+    // Cek error basic
     if (!stethoscopeMesh || isStethoscopeAttached || isProcessing) return;
 
-    // Tentukan target (Controller Kanan)
+    // Cari controller
     let parentTarget = null;
     if (rightVRController) {
         parentTarget = rightVRController.grip || rightVRController.pointer; 
     } else {
-        parentTarget = getActiveCamera(); // Fallback untuk debug PC
+        parentTarget = getActiveCamera(); 
     }
-
     if (!parentTarget) return;
 
-    // 1. Matikan Fisika & Drag Behavior pada model utama (yang di meja)
-    if (stethoscopeDragBehavior) stethoscopeDragBehavior.detach();
+    console.log("GRAB: Model utuh dimatikan, Chestpiece muncul.");
+
+    // 1. MATIKAN MODEL UTUH (STETOSKOP MEJA)
+    // setEnabled(false) benar-benar menghilangkannya dari scene graph sementara
+    stethoscopeMesh.setEnabled(false); 
+    
+    // Matikan fisika agar tidak ketinggalan/jatuh
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
         stethoscopeMesh.physicsImpostor = null;
     }
-    stethoscopeMesh.checkCollisions = false;
+    
+    // Detach behavior agar tidak ada kalkulasi rotasi di background
+    if (stethoscopeMesh.dragBehavior) {
+        stethoscopeMesh.dragBehavior.detach();
+    }
 
-    // 2. SEMBUNYIKAN MODEL UTAMA (YANG KAKU)
-    // Kita sembunyikan wrapper dan isinya
-    findAllMeshesAndSetVisibility(stethoscopeMesh, false);
-
-    // 3. MUNCULKAN & TEMPELKAN CHESTPIECE KE KONTROLER
+    // 2. MUNCULKAN CHESTPIECE DI TANGAN
     if (chestpieceMesh) {
+        chestpieceMesh.setEnabled(true); // Hidupkan chestpiece
+        findAllMeshesAndSetVisibility(chestpieceMesh, true); // Pastikan terlihat
+        
         chestpieceMesh.setParent(parentTarget);
         
-        // ATUR POSISI DI TANGAN (Tweak angka ini agar pas di genggaman)
+        // Atur posisi pas di tangan (sesuaikan angka ini)
         chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
-        // Atur rotasi agar menghadap ke bawah/depan sesuai keinginan
         chestpieceMesh.rotationQuaternion = null;
-        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI / 2, 0, 0); 
-
-        // Munculkan visualnya
-        findAllMeshesAndSetVisibility(chestpieceMesh, true);
+        // Putar agar menghadap bawah/depan
+        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0); 
     }
 
     isStethoscopeAttached = true;
     
-    // 4. Mulai Simulasi Tali Hitam
+    // 3. Mulai Tali
     startTubeSimulation();
-
-    console.log("Stetoskop dipegang (Visual Chestpiece Aktif).");
 }
     
+
     function detachStethoscopeFromCamera() { // Bisa direname jadi detachStethoscope
     if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
@@ -547,81 +550,72 @@ function stopTubeSimulation() {
     isStethoscopeAttached = false;
     console.log("Stetoskop dilepas.");
 }
-    function releaseStethoscopeInPlace() {
-        if (!stethoscopeMesh || !isStethoscopeAttached) return;
+   function releaseStethoscopeInPlace() {
+    if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-        console.log("RELEASE: Melepas stetoskop (TOTAL FREEZE).");
+    console.log("RELEASE: Chestpiece hilang, Model utuh muncul (COOLDOWN).");
 
-        // 1. Hentikan Tali
-        stopTubeSimulation();
+    // 1. Stop Tali
+    stopTubeSimulation();
 
-        // 2. [SOLUSI FINAL] Matikan Pickable pada SEMUA bagian mesh
-        // Agar raycast controller tembus pandang total
-        setHierarchicalPickable(stethoscopeMesh, false);
-
-        // 3. Detach Behavior (Memutus logika grab)
-        if (stethoscopeMesh.dragBehavior) {
-            stethoscopeMesh.dragBehavior.detach();
-        }
-
-        // 4. SWAP VISUAL: Sembunyikan Chestpiece, Munculkan Model Utuh
-        if (chestpieceMesh) {
-            findAllMeshesAndSetVisibility(chestpieceMesh, false);
-            
-            // Ambil posisi drop
-            const dropPosition = chestpieceMesh.absolutePosition.clone();
-            
-            // Lepas parent chestpiece
-            chestpieceMesh.setParent(null);
-
-            // Pindahkan model utuh ke posisi drop
-            stethoscopeMesh.position.copyFrom(dropPosition);
-            
-            // Reset rotasi agar tegak lurus (0,0,0)
-            // Ini mencegah stetoskop miring aneh mengikuti rotasi tangan terakhir
-            stethoscopeMesh.rotationQuaternion = null;
-            stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
-        }
-
-        // 5. Munculkan Kembali Stetoskop Utuh
-        findAllMeshesAndSetVisibility(stethoscopeMesh, true);
-        stethoscopeMesh.setParent(null);
+    // 2. HILANGKAN CHESTPIECE
+    if (chestpieceMesh) {
+        // Simpan posisi terakhir untuk spawn model utuh
+        const dropPosition = chestpieceMesh.absolutePosition.clone();
         
-        // Pastikan Billboard MATI
-        stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-
-        // 6. Aktifkan Fisika (Agar jatuh ke meja)
-        stethoscopeMesh.checkCollisions = true;
+        chestpieceMesh.setParent(null);
+        chestpieceMesh.setEnabled(false); // Matikan total chestpiece
         
-        if (stethoscopeMesh.physicsImpostor) {
-            stethoscopeMesh.physicsImpostor.dispose();
-        }
-        
-        // Beri massa cukup berat agar jatuh mantap
-        stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
-            stethoscopeMesh,
-            BABYLON.PhysicsImpostor.BoxImpostor,
-            { mass: 2.0, restitution: 0.1, friction: 1.0 }, 
-            scene
-        );
-
-        // Reset Status
-        isStethoscopeAttached = false;
-
-        // 7. [COOLDOWN] Hidupkan kembali interaksi setelah 1.5 Detik
-        setTimeout(() => {
-            if (stethoscopeMesh) {
-                // Hidupkan kembali Pickable untuk SEMUA anak
-                setHierarchicalPickable(stethoscopeMesh, true);
-                
-                // Pasang kembali Drag Behavior
-                if (stethoscopeMesh.dragBehavior) {
-                    stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
-                }
-                console.log("Stetoskop siap diambil kembali (Interaksi Aktif).");
-            }
-        }, 1500); // Waktu jeda 1.5 detik
+        // Pindahkan model utuh ke lokasi drop
+        stethoscopeMesh.position.copyFrom(dropPosition);
+        stethoscopeMesh.rotationQuaternion = null;
+        // Reset rotasi tegak lurus (0,0,0) agar tidak miring aneh
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0);
     }
+
+    // 3. HIDUPKAN KEMBALI MODEL UTUH
+    stethoscopeMesh.setEnabled(true); // Munculkan kembali di scene
+    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
+    stethoscopeMesh.setParent(null);
+    
+    // 4. KUNCI BIAR TIDAK BISA DISENTUH (GHOST MODE)
+    // Ini kuncinya! Kita buat dia tidak bisa di-klik/grab
+    setHierarchicalPickable(stethoscopeMesh, false);
+    
+    // Pastikan Billboard (Rotasi ke Wajah) MATI
+    stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+
+    // 5. FISIKA (Agar Jatuh)
+    stethoscopeMesh.checkCollisions = true;
+    if (stethoscopeMesh.physicsImpostor) {
+        stethoscopeMesh.physicsImpostor.dispose();
+    }
+    // Massa berat (2) agar jatuh cepat
+    stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
+        stethoscopeMesh,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 2.0, restitution: 0.1, friction: 0.5 }, 
+        scene
+    );
+
+    isStethoscopeAttached = false;
+
+    // 6. TIMER: BARU BISA DI-GRAB LAGI SETELAH 1.5 DETIK
+    // Memberi waktu tangan Anda menjauh dari objek yang baru muncul
+    setTimeout(() => {
+        if (stethoscopeMesh) {
+            console.log("COOLDOWN SELESAI: Stetoskop bisa diambil lagi.");
+            
+            // Hidupkan sensor sentuh
+            setHierarchicalPickable(stethoscopeMesh, true);
+            
+            // Pasang kembali logika grab
+            if (stethoscopeMesh.dragBehavior) {
+                stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
+            }
+        }
+    }, 1500); 
+}
     // =====================================
     // Fungsi Reset Item
     // =====================================
