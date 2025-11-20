@@ -82,7 +82,17 @@ let tubeUpdateObserver = null;
     camera.keysLeft.push(65); camera.keysRight.push(68);
 
     let xr = null;
-    
+    function setHierarchicalPickable(rootMesh, isPickable) {
+        if (!rootMesh) return;
+        
+        // Set induk
+        rootMesh.isPickable = isPickable;
+        
+        // Set semua anak (recursive)
+        rootMesh.getChildMeshes().forEach(child => {
+            child.isPickable = isPickable;
+        });
+    }
     // ... (FUNGSI createPngBillboard) ...
     function createPngBillboard(name, filename, position, size, scene) {
         // Cari dan hapus billboard lama jika ada
@@ -538,77 +548,80 @@ function stopTubeSimulation() {
     console.log("Stetoskop dilepas.");
 }
     function releaseStethoscopeInPlace() {
-    if (!stethoscopeMesh || !isStethoscopeAttached) return;
+        if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-    console.log("RELEASE: Melepas stetoskop (Mode Cooldown).");
+        console.log("RELEASE: Melepas stetoskop (TOTAL FREEZE).");
 
-    // 1. Hentikan Tali
-    stopTubeSimulation();
+        // 1. Hentikan Tali
+        stopTubeSimulation();
 
-    // 2. [SOLUSI ANTI BENTROK]
-    // Matikan Pickable: Raycast akan tembus pandang, tidak bisa mendeteksi stetoskop
-    stethoscopeMesh.isPickable = false; 
-    
-    // Detach Behavior: Mematikan logika grab sepenuhnya
-    if (stethoscopeMesh.dragBehavior) {
-        stethoscopeMesh.dragBehavior.detach();
-    }
+        // 2. [SOLUSI FINAL] Matikan Pickable pada SEMUA bagian mesh
+        // Agar raycast controller tembus pandang total
+        setHierarchicalPickable(stethoscopeMesh, false);
 
-    // 3. Swap Visual: Munculkan Stetoskop Utuh
-    if (chestpieceMesh) {
-        findAllMeshesAndSetVisibility(chestpieceMesh, false);
-        
-        // Ambil posisi terakhir
-        const dropPosition = chestpieceMesh.absolutePosition.clone();
-        
-        // Lepas parent
-        chestpieceMesh.setParent(null);
-
-        // Pindahkan stetoskop utuh ke posisi tangan
-        stethoscopeMesh.position.copyFrom(dropPosition);
-        
-        // Reset rotasi agar tegak lurus (hilangkan rotasi aneh dari tangan)
-        stethoscopeMesh.rotationQuaternion = null;
-        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
-    }
-
-    // 4. Munculkan Mesh Utama
-    findAllMeshesAndSetVisibility(stethoscopeMesh, true);
-    stethoscopeMesh.setParent(null);
-    
-    // Pastikan billboard mati
-    stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-
-    // 5. Aktifkan Fisika (Jatuh)
-    stethoscopeMesh.checkCollisions = true;
-    if (stethoscopeMesh.physicsImpostor) {
-        stethoscopeMesh.physicsImpostor.dispose();
-    }
-    // Beri massa agar jatuh mantap
-    stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
-        stethoscopeMesh,
-        BABYLON.PhysicsImpostor.BoxImpostor,
-        { mass: 1.0, restitution: 0.2, friction: 0.6 },
-        scene
-    );
-
-    isStethoscopeAttached = false;
-
-    // 6. [COOLDOWN] Hidupkan kembali Grab setelah 1.5 Detik
-    // Waktu ini cukup untuk tangan Anda menjauh dari objek
-    setTimeout(() => {
-        if (stethoscopeMesh) {
-            // Hidupkan kembali Pickable
-            stethoscopeMesh.isPickable = true;
-            
-            // Pasang kembali Drag Behavior
-            if (stethoscopeMesh.dragBehavior) {
-                stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
-            }
-            console.log("Stetoskop siap diambil kembali (Pickable ON).");
+        // 3. Detach Behavior (Memutus logika grab)
+        if (stethoscopeMesh.dragBehavior) {
+            stethoscopeMesh.dragBehavior.detach();
         }
-    }, 1500); // 1.5 detik jeda aman
-}
+
+        // 4. SWAP VISUAL: Sembunyikan Chestpiece, Munculkan Model Utuh
+        if (chestpieceMesh) {
+            findAllMeshesAndSetVisibility(chestpieceMesh, false);
+            
+            // Ambil posisi drop
+            const dropPosition = chestpieceMesh.absolutePosition.clone();
+            
+            // Lepas parent chestpiece
+            chestpieceMesh.setParent(null);
+
+            // Pindahkan model utuh ke posisi drop
+            stethoscopeMesh.position.copyFrom(dropPosition);
+            
+            // Reset rotasi agar tegak lurus (0,0,0)
+            // Ini mencegah stetoskop miring aneh mengikuti rotasi tangan terakhir
+            stethoscopeMesh.rotationQuaternion = null;
+            stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
+        }
+
+        // 5. Munculkan Kembali Stetoskop Utuh
+        findAllMeshesAndSetVisibility(stethoscopeMesh, true);
+        stethoscopeMesh.setParent(null);
+        
+        // Pastikan Billboard MATI
+        stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+
+        // 6. Aktifkan Fisika (Agar jatuh ke meja)
+        stethoscopeMesh.checkCollisions = true;
+        
+        if (stethoscopeMesh.physicsImpostor) {
+            stethoscopeMesh.physicsImpostor.dispose();
+        }
+        
+        // Beri massa cukup berat agar jatuh mantap
+        stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
+            stethoscopeMesh,
+            BABYLON.PhysicsImpostor.BoxImpostor,
+            { mass: 2.0, restitution: 0.1, friction: 1.0 }, 
+            scene
+        );
+
+        // Reset Status
+        isStethoscopeAttached = false;
+
+        // 7. [COOLDOWN] Hidupkan kembali interaksi setelah 1.5 Detik
+        setTimeout(() => {
+            if (stethoscopeMesh) {
+                // Hidupkan kembali Pickable untuk SEMUA anak
+                setHierarchicalPickable(stethoscopeMesh, true);
+                
+                // Pasang kembali Drag Behavior
+                if (stethoscopeMesh.dragBehavior) {
+                    stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
+                }
+                console.log("Stetoskop siap diambil kembali (Interaksi Aktif).");
+            }
+        }, 1500); // Waktu jeda 1.5 detik
+    }
     // =====================================
     // Fungsi Reset Item
     // =====================================
