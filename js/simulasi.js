@@ -551,46 +551,56 @@ function stopTubeSimulation() {
     console.log("Stetoskop dilepas.");
 }
    function releaseStethoscopeInPlace() {
+    // Cek error
     if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-    console.log("RELEASE: Chestpiece hilang, Model utuh muncul (COOLDOWN).");
+    console.log("RELEASE: Mencopot stetoskop & Menghapus Behavior sementara.");
 
-    // 1. Stop Tali
+    // 1. Hentikan Tali
     stopTubeSimulation();
 
-    // 2. HILANGKAN CHESTPIECE
+    // 2. [SOLUSI AMPUH] HAPUS BEHAVIOR DARI MESH
+    // Kita tidak cuma detach, tapi REMOVE.
+    // Ini memastikan TIDAK ADA cara bagi raycast untuk mengontrol mesh ini.
+    if (stethoscopeMesh.dragBehavior) {
+        stethoscopeMesh.dragBehavior.detach();
+        stethoscopeMesh.removeBehavior(stethoscopeMesh.dragBehavior);
+    }
+
+    // 3. SWAP VISUAL
     if (chestpieceMesh) {
-        // Simpan posisi terakhir untuk spawn model utuh
-        const dropPosition = chestpieceMesh.absolutePosition.clone();
-        
+        // Sembunyikan potongan di tangan
+        chestpieceMesh.setEnabled(false); 
         chestpieceMesh.setParent(null);
-        chestpieceMesh.setEnabled(false); // Matikan total chestpiece
-        
-        // Pindahkan model utuh ke lokasi drop
+
+        // Ambil posisi terakhir
+        const dropPosition = chestpieceMesh.absolutePosition.clone();
+
+        // Pindahkan model utuh ke posisi tersebut
         stethoscopeMesh.position.copyFrom(dropPosition);
+        // Reset rotasi (wajib tegak lurus agar jatuhnya natural)
         stethoscopeMesh.rotationQuaternion = null;
-        // Reset rotasi tegak lurus (0,0,0) agar tidak miring aneh
         stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0);
     }
 
-    // 3. HIDUPKAN KEMBALI MODEL UTUH
-    stethoscopeMesh.setEnabled(true); // Munculkan kembali di scene
+    // 4. HIDUPKAN KEMBALI MODEL UTUH
+    stethoscopeMesh.setEnabled(true); 
     findAllMeshesAndSetVisibility(stethoscopeMesh, true);
     stethoscopeMesh.setParent(null);
-    
-    // 4. KUNCI BIAR TIDAK BISA DISENTUH (GHOST MODE)
-    // Ini kuncinya! Kita buat dia tidak bisa di-klik/grab
-    setHierarchicalPickable(stethoscopeMesh, false);
-    
-    // Pastikan Billboard (Rotasi ke Wajah) MATI
+
+    // Matikan Billboard (Rotasi Wajah)
     stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
 
-    // 5. FISIKA (Agar Jatuh)
+    // 5. [SOLUSI TAMBAHAN] MATIKAN PICKABLE SEMENTARA
+    // Agar raycast tembus pandang saat jatuh
+    setHierarchicalPickable(stethoscopeMesh, false);
+
+    // 6. AKTIFKAN FISIKA (Agar Jatuh)
     stethoscopeMesh.checkCollisions = true;
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
     }
-    // Massa berat (2) agar jatuh cepat
+    // Massa 2 agar jatuh cepat dan tidak melayang
     stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
         stethoscopeMesh,
         BABYLON.PhysicsImpostor.BoxImpostor,
@@ -600,19 +610,19 @@ function stopTubeSimulation() {
 
     isStethoscopeAttached = false;
 
-    // 6. TIMER: BARU BISA DI-GRAB LAGI SETELAH 1.5 DETIK
-    // Memberi waktu tangan Anda menjauh dari objek yang baru muncul
+    // 7. COOLDOWN: PASANG KEMBALI BEHAVIOR SETELAH 1.5 DETIK
+    // Saat ini, stetoskop sudah jatuh di meja dan tangan Anda sudah menjauh.
     setTimeout(() => {
-        if (stethoscopeMesh) {
-            console.log("COOLDOWN SELESAI: Stetoskop bisa diambil lagi.");
+        if (stethoscopeMesh && stethoscopeMesh.dragBehavior) {
+            console.log("COOLDOWN SELESAI: Memasang kembali Drag Behavior.");
             
-            // Hidupkan sensor sentuh
+            // a. Hidupkan sensor sentuh
             setHierarchicalPickable(stethoscopeMesh, true);
-            
-            // Pasang kembali logika grab
-            if (stethoscopeMesh.dragBehavior) {
-                stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
-            }
+
+            // b. PASANG KEMBALI (ADD & ATTACH)
+            // Ini membuat logika grab baru yang bersih
+            stethoscopeMesh.addBehavior(stethoscopeMesh.dragBehavior);
+            stethoscopeMesh.dragBehavior.attach(stethoscopeMesh);
         }
     }, 1500); 
 }
