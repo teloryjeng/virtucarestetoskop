@@ -682,7 +682,7 @@ function stopTubeSimulation() {
     // Atur Rotasi agar moncong termometer menghadap depan
     thermometerMesh.rotationQuaternion = null;
     // Rotasi X 45 derajat (Math.PI/4) biasanya pas untuk pistol termometer
-    thermometerMesh.rotation = new BABYLON.Vector3(-60, -110, ); 
+    thermometerMesh.rotation = new BABYLON.Vector3(-110, -60, ); 
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -1036,6 +1036,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
