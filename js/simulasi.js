@@ -305,28 +305,22 @@ let tubeUpdateObserver = null;
     /**
      * Fungsi Helper untuk memuat item grabbable dengan wrapper fisika
      */
-    function createGrabbableItem(name, glbFile, position, scaling, wrapperRotation) {
-        // 1. Buat Wrapper Box (yang akan kena fisika)
+    function createGrabbableItem(name, glbFile, position, scaling, wrapperRotation, useBillboard = true) {
+        // 1. Buat Wrapper Box
         const wrapper = BABYLON.MeshBuilder.CreateBox(name + "Wrapper", {
             size: itemPhysicsSize 
         }, scene);
         wrapper.position = position; 
-        wrapper.isVisible = false; // Sembunyikan box fisika
-        
+        wrapper.isVisible = false; 
         wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
 
-        // **FIX: Terapkan Rotasi Awal ke Wrapper**
         if (wrapperRotation) {
             wrapper.rotation.copyFrom(wrapperRotation); 
         }
 
-        // 2. Tambahkan metadata ke WRAPPER
-        wrapper.metadata = {
-            isGrabbable: true,
-            itemData: { title: name }
-        };
-
-        // 3. Tambahkan fisika ke WRAPPER
+        // 2. Metadata & Fisika
+        wrapper.metadata = { isGrabbable: true, itemData: { title: name } };
+        
         wrapper.physicsImpostor = new BABYLON.PhysicsImpostor(
             wrapper,
             BABYLON.PhysicsImpostor.BoxImpostor,
@@ -334,42 +328,29 @@ let tubeUpdateObserver = null;
             scene
         );
         
-        // --- [TAMBAHAN LOGIKA GRAB] ---
-        // Menambahkan behavior agar kita tahu kapan item dipegang/dilepas
+        // 3. Behavior Grab
         const dragBehavior = new BABYLON.SixDofDragBehavior();
         dragBehavior.dragDeltaRatio = 1;
         dragBehavior.zDragFactor = 1;
-
-        // Agar tidak konflik dengan fisika saat dilepas
         dragBehavior.detachCameraControls = true;
-
-        // Pasang behavior ke wrapper
         wrapper.addBehavior(dragBehavior);
 
-        // Observer ini berjalan setiap frame (60x per detik) untuk memastikan status selalu benar
+        // 4. Observer: Cek status pegang
         scene.onBeforeRenderObservable.add(() => {
-            // Pengecekan: Apakah ada pointer (mouse/VR controller) yang sedang memegang item ini?
-            // Jika currentDraggingPointerId bukan -1, berarti sedang dipegang.
             if (dragBehavior.currentDraggingPointerId !== -1) {
                 
-                // KONDISI: SEDANG DIPEGANG (GRAB)
-                // Aktifkan Billboard Mode agar label/item menghadap kamera
-                if (wrapper.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_Y) {
-                    wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
+                // KONDISI: SEDANG DIPEGANG
+                // Cek apakah item ini BOLEH billboard?
+                if (useBillboard) { 
+                    if (wrapper.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_Y) {
+                        wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
+                    }
                 }
 
             } else {
-                
-                // KONDISI: TIDAK DIPEGANG (DIAM/DI MEJA)
-                // Pastikan Billboard Mode mati
+                // KONDISI: TIDAK DIPEGANG
                 if (wrapper.billboardMode !== BABYLON.Mesh.BILLBOARDMODE_NONE) {
                     wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-                    
-                    // [Opsional] Reset rotasi tegak lurus saat dilepas agar rapi
-                    // wrapper.rotation.x = 0;
-                    // wrapper.rotation.z = 0;
-                    
-                    // [PENTING UNTUK VR] Hentikan sisa momentum putaran fisika agar tidak 'melintir' di meja
                     if (wrapper.physicsImpostor) {
                         wrapper.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
                     }
@@ -377,14 +358,10 @@ let tubeUpdateObserver = null;
             }
         });
 
-        // 4. Muat model GLB
+        // 5. Load Model
         BABYLON.SceneLoader.ImportMesh("", "assets/", glbFile, scene, function (meshes) {
             const rootMesh = meshes[0];
-            
-            // 5. Parent-kan GLB ke WRAPPER
             rootMesh.setParent(wrapper);
-            
-            // 6. Atur posisi/skala/rotasi GLB RELATIF ke wrapper
             rootMesh.position = new BABYLON.Vector3(0, 0, 0); 
             rootMesh.scaling = scaling;
         });
@@ -396,7 +373,8 @@ let tubeUpdateObserver = null;
     stethoscopeMesh = createGrabbableItem("stethoscope", "STETOSKOP.glb", 
         ITEM_POSITIONS.stethoscope.pos, 
         new BABYLON.Vector3(0.04, 0.04, 0.04),
-        ITEM_POSITIONS.stethoscope.rot
+        ITEM_POSITIONS.stethoscope.rot,
+        false
     );
     
     thermometerMesh = createGrabbableItem("thermometer", "thermometer.glb", 
@@ -561,82 +539,56 @@ function stopTubeSimulation() {
     console.log("Stetoskop dilepas.");
 }
     function releaseStethoscopeInPlace() {
-    // Cek keamanan dasar
     if (!stethoscopeMesh || !isStethoscopeAttached) return;
 
-    console.log("RELEASE: Melepas stetoskop...");
+    console.log("RELEASE: Stetoskop dilepas statis.");
 
-    // 1. Hentikan Simulasi Tali
+    // 1. Hentikan Tali
     stopTubeSimulation();
 
-    // 2. [SOLUSI UTAMA] MATIKAN DRAG BEHAVIOR SEPENUHNYA
-    // Ini memutus hubungan "logika pegang/rotasi" dari tangan ke stetoskop secara paksa.
+    // 2. Matikan Drag Behavior (Agar tangan lepas sepenuhnya)
     if (stethoscopeDragBehavior) {
-        stethoscopeDragBehavior.detach(); 
+        stethoscopeDragBehavior.detach();
     }
 
-    // 3. SWAP VISUAL: Sembunyikan Chestpiece, Munculkan Model Utuh
+    // 3. Swap Visual: Munculkan Stetoskop Utuh
     if (chestpieceMesh) {
-        // Sembunyikan potongan
         findAllMeshesAndSetVisibility(chestpieceMesh, false);
         
-        // Ambil posisi terakhir dari tangan
+        // Pindahkan model utuh ke posisi terakhir tangan
+        // Karena billboard mati, kita bebas atur rotasinya tegak
         const dropPosition = chestpieceMesh.absolutePosition.clone();
         
-        // Ambil rotasi Y saja (agar stetoskop tegak lurus gravitasi, tidak miring aneh)
-        // Jika Anda ingin rotasi persis tangan, ganti dropRotation.y dengan full rotation
-        const currentRot = chestpieceMesh.rotationQuaternion 
-            ? chestpieceMesh.rotationQuaternion.toEulerAngles() 
-            : chestpieceMesh.rotation;
-            
-        // Lepaskan parent potongan
         chestpieceMesh.setParent(null);
-
-        // PINDAHKAN MODEL UTAMA KE POSISI TERAKHIR
-        stethoscopeMesh.position.copyFrom(dropPosition);
         
-        // Reset rotasi agar tegak (hanya putar sumbu Y)
+        stethoscopeMesh.position.copyFrom(dropPosition);
         stethoscopeMesh.rotationQuaternion = null;
-        stethoscopeMesh.rotation = new BABYLON.Vector3(0, currentRot.y, 0); 
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); // Reset tegak lurus
     }
 
-    // 4. MUNCULKAN KEMBALI MODEL UTAMA & RESET PARENT
     findAllMeshesAndSetVisibility(stethoscopeMesh, true);
     stethoscopeMesh.setParent(null);
     
-    // 5. [PENTING] MATIKAN BILLBOARD SECARA PAKSA
-    // Ini mencegah stetoskop berputar mengikuti wajah/kamera
-    stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
-
-    // 6. AKTIFKAN FISIKA (AGAR JATUH)
+    // 4. Aktifkan Fisika (Agar jatuh ke meja)
     stethoscopeMesh.checkCollisions = true;
-    
-    // Reset impostor lama untuk menghilangkan momentum sisa
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
     }
-    
-    // Pasang impostor baru agar jatuh
     stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
         stethoscopeMesh,
         BABYLON.PhysicsImpostor.BoxImpostor,
-        { mass: 1, restitution: 0.2, friction: 0.5 }, // Mass 1 agar jatuh meyakinkan
+        { mass: 1.0, restitution: 0.1, friction: 0.5 }, // Berat biar mantap
         scene
     );
 
-    // 7. RESET STATUS
     isStethoscopeAttached = false;
 
-    // 8. [SOLUSI UTAMA] HIDUPKAN KEMBALI DRAG BEHAVIOR SETELAH JEDA
-    // Kita beri waktu 1 detik (1000ms) agar stetoskop jatuh dulu.
-    // Selama 1 detik ini, stetoskop TIDAK BISA diambil.
-    // Ini mencegah tangan Anda "tidak sengaja" meng-grab lagi saat baru dilepas.
+    // 5. Aktifkan kembali Grab setelah jeda singkat
     setTimeout(() => {
         if (stethoscopeDragBehavior && stethoscopeMesh) {
             stethoscopeDragBehavior.attach(stethoscopeMesh);
-            console.log("Stetoskop siap diambil kembali (Cooldown selesai).");
         }
-    }, 1000); 
+    }, 500); // Jeda 0.5 detik cukup
 }
     // =====================================
     // Fungsi Reset Item
