@@ -46,6 +46,7 @@ const createScene = async function () {
     let rightVRController = null; // Untuk menyimpan controller kanan
 let stethoscopeTube = null;   // Mesh tali stetoskop
 let tubeUpdateObserver = null;
+let isThermometerAttached = false; // Status termometer
 
     // Aktifkan Fisika (CannonJS)
     const gravityVector = new BABYLON.Vector3(0, -9.81, 0);
@@ -161,9 +162,17 @@ let tubeUpdateObserver = null;
                     if (triggerComponent) {
                         triggerComponent.onButtonStateChangedObservable.add((component) => {
                             // JIKA TRIGGER DILEPAS (pressed === false) & STETOSKOP SEDANG NEMPEL
-                            if (component.pressed === false && isStethoscopeAttached) {
-                                console.log("Trigger dilepas, menjatuhkan stetoskop...");
-                                releaseStethoscopeInPlace(); 
+                            if (component.pressed === false) {
+            
+                                // Cek Stetoskop
+                                if (isStethoscopeAttached) {
+                                    releaseStethoscopeInPlace(); 
+                                }
+                                
+                                // Cek Termometer (TAMBAHAN BARU)
+                                if (isThermometerAttached) {
+                                    releaseThermometer();
+                                }
                             }
                         });
                         console.log("Listener Trigger berhasil dipasang.");
@@ -393,6 +402,11 @@ let tubeUpdateObserver = null;
         ITEM_POSITIONS.thermometer.rot,
         false
     );
+    if (thermometerMesh.dragBehavior) {
+        thermometerMesh.dragBehavior.onDragStartObservable.add(() => {
+            attachThermometerToController();
+        });
+    }
 
     tensimeterMesh = createGrabbableItem("tensimeter", "tensimeter.glb", 
         ITEM_POSITIONS.tensimeter.pos, 
@@ -634,6 +648,110 @@ function stopTubeSimulation() {
             stethoscopeMesh.dragBehavior = newDragBehavior; // Simpan referensi baru
         }
     }, 1500); // Jeda 1.5 detik
+}
+    function attachThermometerToController() {
+    if (!thermometerMesh || isThermometerAttached || isProcessing) return;
+
+    // Cari Controller Kanan
+    let parentTarget = null;
+    if (rightVRController) {
+        parentTarget = rightVRController.grip || rightVRController.pointer;
+    } else {
+        parentTarget = getActiveCamera(); // Fallback PC
+    }
+    if (!parentTarget) return;
+
+    console.log("GRAB THERMOMETER: Snap ke posisi scan.");
+
+    // 1. Matikan Fisika & Behavior Lama
+    if (thermometerMesh.physicsImpostor) {
+        thermometerMesh.physicsImpostor.dispose();
+        thermometerMesh.physicsImpostor = null;
+    }
+    if (thermometerMesh.dragBehavior) {
+        thermometerMesh.dragBehavior.detach();
+    }
+
+    // 2. Tempel ke Tangan
+    thermometerMesh.setParent(parentTarget);
+    
+    // 3. ATUR POSISI SNAP (POSISI SCAN SUHU)
+    // Angka ini menentukan posisi 'enak' di tangan. Silakan tweak jika kurang pas.
+    thermometerMesh.position = new BABYLON.Vector3(0, -0.05, 0.1); // Sedikit ke depan & bawah
+    
+    // Atur Rotasi agar moncong termometer menghadap depan
+    thermometerMesh.rotationQuaternion = null;
+    // Rotasi X 45 derajat (Math.PI/4) biasanya pas untuk pistol termometer
+    thermometerMesh.rotation = new BABYLON.Vector3(Math.PI / 4, 0, 0); 
+
+    // 4. Pastikan Terlihat & Matikan Billboard
+    findAllMeshesAndSetVisibility(thermometerMesh, true);
+    thermometerMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+
+    isThermometerAttached = true;
+}
+
+function releaseThermometer() {
+    if (!thermometerMesh || !isThermometerAttached) return;
+
+    console.log("RELEASE THERMOMETER: Jatuh fisika.");
+
+    // 1. Hapus Behavior Lama (Agar tidak lengket)
+    if (thermometerMesh.dragBehavior) {
+        thermometerMesh.dragBehavior.detach();
+        thermometerMesh.removeBehavior(thermometerMesh.dragBehavior);
+        thermometerMesh.dragBehavior = null;
+    }
+
+    // 2. Matikan Raycast Sementara (Ghost Mode)
+    setHierarchicalPickable(thermometerMesh, false);
+
+    // 3. Lepas dari Tangan (Unparent)
+    const dropPosition = thermometerMesh.absolutePosition.clone();
+    thermometerMesh.setParent(null);
+    thermometerMesh.position.copyFrom(dropPosition);
+    
+    // Reset rotasi agar jatuh wajar (tegak lurus gravitasi)
+    thermometerMesh.rotationQuaternion = null;
+    thermometerMesh.rotation = new BABYLON.Vector3(0, 0, 0);
+
+    // 4. Aktifkan Fisika (Jatuh)
+    thermometerMesh.checkCollisions = true;
+    if (thermometerMesh.physicsImpostor) {
+        thermometerMesh.physicsImpostor.dispose();
+    }
+    thermometerMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
+        thermometerMesh,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 1.0, restitution: 0.2, friction: 0.6 }, 
+        scene
+    );
+
+    isThermometerAttached = false;
+
+    // 5. COOLDOWN: Pasang kembali Grab setelah 1.5 detik
+    setTimeout(() => {
+        if (thermometerMesh) {
+            console.log("Thermometer siap diambil lagi.");
+            
+            // a. Hidupkan sensor sentuh
+            setHierarchicalPickable(thermometerMesh, true);
+
+            // b. Buat Behavior Baru
+            const newDragBehavior = new BABYLON.SixDofDragBehavior();
+            newDragBehavior.dragDeltaRatio = 1;
+            newDragBehavior.zDragFactor = 1;
+            newDragBehavior.detachCameraControls = true;
+            
+            // c. Pasang Listener GRAB
+            newDragBehavior.onDragStartObservable.add(() => {
+                attachThermometerToController(); // Panggil fungsi snap saat di-grab
+            });
+
+            thermometerMesh.addBehavior(newDragBehavior);
+            thermometerMesh.dragBehavior = newDragBehavior;
+        }
+    }, 1500);
 }
     // =====================================
     // Fungsi Reset Item
