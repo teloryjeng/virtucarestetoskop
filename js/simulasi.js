@@ -680,14 +680,8 @@ function stopTubeSimulation() {
     thermometerMesh.position = new BABYLON.Vector3(0, -0.05, 0.1); // Sedikit ke depan & bawah
     
     // Atur Rotasi agar moncong termometer menghadap depan
-    if (!thermometerMesh.rotationQuaternion) {
-        thermometerMesh.rotationQuaternion = BABYLON.Quaternion.Identity();
-    } 
-    thermometerMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
-        0,              // Sumbu X (Nunduk/Dongak)
-        0,   // Sumbu Y  (Putar Kiri -90 derajat)
-        0              // Sumbu Z (Miring)
-    );
+    thermometerMesh.rotationQuaternion = null;
+    thermometerMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0);
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -1219,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
