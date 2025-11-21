@@ -684,9 +684,9 @@ function stopTubeSimulation() {
         thermometerMesh.rotationQuaternion = BABYLON.Quaternion.Identity();
     } 
     thermometerMesh.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(
-        Math.PI,              // Sumbu X (Nunduk/Dongak)
+        Math.PI/2,              // Sumbu X (Nunduk/Dongak)
         Math.PI/2,   // Sumbu Y  (Putar Kiri -90 derajat)
-        -Math.PI/2              // Sumbu Z (Miring)
+        -Math.PI              // Sumbu Z (Miring)
     );
 
     // 4. Pastikan Terlihat & Matikan Billboard
@@ -1219,6 +1219,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
