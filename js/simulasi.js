@@ -712,7 +712,7 @@ function releaseThermometer() {
     
     // Reset rotasi agar jatuh wajar (tegak lurus gravitasi)
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(0, 0, 0);
+    thermometerMesh.rotation = new BABYLON.Vector3(0, 90, 0);
 
     // 4. Aktifkan Fisika (Jatuh)
     thermometerMesh.checkCollisions = true;
@@ -1213,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
