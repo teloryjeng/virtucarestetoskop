@@ -396,9 +396,9 @@ let isThermometerAttached = false; // Status termometer
         false
     );
     
-    thermometerMesh = createGrabbableItem("thermometer", "thermometer1.glb", 
+    thermometerMesh = createGrabbableItem("thermometer", "thermometer.glb", 
         ITEM_POSITIONS.thermometer.pos, 
-        new BABYLON.Vector3(0.25, 0.25, 0.25),
+        new BABYLON.Vector3(-0.25, -0.25, -0.25),
         ITEM_POSITIONS.thermometer.rot,
         false
     );
@@ -1213,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
