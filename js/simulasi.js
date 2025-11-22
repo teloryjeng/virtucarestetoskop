@@ -688,6 +688,10 @@ function stopTubeSimulation() {
     thermometerMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
 
     isThermometerAttached = true;
+    const axisViewer = new BABYLON.Debug.AxesViewer(scene, 0.5);
+    axisViewer.xAxis.parent = thermometerMesh;
+    axisViewer.yAxis.parent = thermometerMesh;
+    axisViewer.zAxis.parent = thermometerMesh;
 }
 
 function releaseThermometer() {
@@ -1213,6 +1217,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
