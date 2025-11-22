@@ -681,7 +681,7 @@ function stopTubeSimulation() {
     
     // Atur Rotasi agar moncong termometer menghadap depan
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(1.7, 1.6, 0.5);
+    thermometerMesh.rotation = new BABYLON.Vector3(.5, 1.6, 0);
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -1213,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
