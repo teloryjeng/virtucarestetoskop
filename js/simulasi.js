@@ -681,17 +681,13 @@ function stopTubeSimulation() {
     
     // Atur Rotasi agar moncong termometer menghadap depan
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(0, -10, 0);
+    thermometerMesh.rotation = new BABYLON.Vector3(0, -30, 0);
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
     thermometerMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
 
     isThermometerAttached = true;
-    const axisViewer = new BABYLON.Debug.AxesViewer(scene, 0.5);
-    axisViewer.xAxis.parent = thermometerMesh;
-    axisViewer.yAxis.parent = thermometerMesh;
-    axisViewer.zAxis.parent = thermometerMesh;
 }
 
 function releaseThermometer() {
@@ -1217,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
