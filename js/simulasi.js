@@ -20,7 +20,7 @@ const ITEM_POSITIONS = {
     thermometer: {
         pos: new BABYLON.Vector3(-16.3, START_Y, 27.5),
         // Konversi dari (80, 160, 0) derajat ke radian
-        rot: new BABYLON.Vector3(80 * DEG_TO_RAD, 160 * DEG_TO_RAD, 0 * DEG_TO_RAD)
+        rot: new BABYLON.Vector3(0, 0, 0)
     },
     tensimeter: {
         pos: new BABYLON.Vector3(-17.5, START_Y, 27.5),
@@ -681,7 +681,7 @@ function stopTubeSimulation() {
     
     // Atur Rotasi agar moncong termometer menghadap depan
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(.3, 1.6, 0);
+    thermometerMesh.rotation = new BABYLON.Vector3(0, 90, 0);
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -1213,6 +1213,7 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
 
 
