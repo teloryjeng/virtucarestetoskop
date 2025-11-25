@@ -6,8 +6,8 @@ function setupVRInput(xr, scene) {
     const highlightColor = new BABYLON.Color3.Green();
     
     // --- KONFIGURASI RESPONSIVITAS ---
-    const MOVE_FORCE = 80;     
-    const ROTATE_FORCE = 50;   
+    const MOVE_FORCE = 40;     
+    const ROTATE_FORCE = 10;   
     const GRAB_DAMPING = 0.5;  
     
     // Variabel state Mouse
@@ -35,7 +35,7 @@ function setupVRInput(xr, scene) {
 
         const velocity = diff.scale(MOVE_FORCE * factor);
         
-        const maxSpeed = 20; 
+        const maxSpeed = 5; 
         if (velocity.length() > maxSpeed) {
             velocity.normalize().scaleInPlace(maxSpeed);
         }
@@ -225,4 +225,5 @@ function setupVRInput(xr, scene) {
 
     console.log("✅ Logika grab UI Priority & Smooth Physics berhasil diinisialisasi.");
 }
+
 
