@@ -33,22 +33,34 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
     // ================================
     // Buat ground (lantai dunia)
     // ================================
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100, height: 100 }, scene);
+    const groundThickness = 5; // Ketebalan lantai 5 meter ke bawah
+    const groundLevel = 0.12;  // Tinggi permukaan lantai yang diinginkan
+    
+    // Gunakan CreateBox, bukan CreateGround
+    const ground = BABYLON.MeshBuilder.CreateBox("ground", { 
+        width: 100, 
+        height: groundThickness, // Tebal!
+        depth: 100 
+    }, scene);
+
     ground.checkCollisions = true;
-    ground.position.y = 0.12;
-    ground.isVisible = false;
-    assets.push(ground); // Lacak
+    
+    // Posisikan agar PERMUKAAN ATAS-nya ada di 0.12
+    // Rumusnya: LevelInginkan - (SetengahKetebalan)
+    ground.position.y = groundLevel - (groundThickness / 2); 
+    
+    ground.isVisible = false; // Set true jika ingin debug melihat ketebalannya
+    assets.push(ground); 
 
     if (scene.getPhysicsEngine()) {
         ground.physicsImpostor = new BABYLON.PhysicsImpostor(
             ground,
             BABYLON.PhysicsImpostor.BoxImpostor,
-            { mass: 0, restitution: 0.9 },
+            { mass: 0, restitution: 0.5, friction: 0.8 }, // Tambah friction agar barang tidak licin
             scene
         );
-        console.log("✅ Physics impostor ground dibuat");
+        console.log("✅ Physics impostor ground (TEBAL) dibuat");
     }
-
     // ================================
     // Cahaya dan Arah
     // ================================
@@ -512,7 +524,19 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
       itemData.physics, 
       scene
     );
-
+    // === TAMBAHAN BARU: AKTIFKAN CCD (ANTI TEMBUS LANTAI) ===
+    // Khusus untuk barang kecil yang mudah tembus
+    if (physicsWrapper.physicsImpostor.physicsBody) {
+        // ccdSpeedThreshold: Batas kecepatan minimal untuk mengaktifkan CCD (0 = selalu aktif)
+        // ccdIterations: Seberapa teliti pengecekannya
+        
+        // CannonJS native properties:
+        physicsWrapper.physicsImpostor.physicsBody.ccdSpeedThreshold = 0; 
+        physicsWrapper.physicsImpostor.physicsBody.ccdIterations = 10; 
+        
+        // Opsional: Naikkan linear damping (rem udara) sedikit agar jatuhnya tidak secepat peluru
+        physicsWrapper.physicsImpostor.linearDamping = 0.1; 
+    }
     // 5. Muat Model GLB
     try {
       const result = await BABYLON.SceneLoader.ImportMeshAsync("", "assets/", itemData.file, scene);
@@ -1191,5 +1215,3 @@ confirmationStack.addControl(finalButtonsContainer);
     // HAPUS: engine.runRenderLoop(...)
     // HAPUS: window.addEventListener("resize", ...)
 }
-
-
