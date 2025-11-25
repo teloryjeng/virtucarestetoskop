@@ -1,25 +1,28 @@
-// js/interactions.js (Versi Physics-Based Collision Fix)
+// js/interactions.js (Versi Smooth & Stable Physics)
 
 function setupVRInput(xr, scene) {
-    console.log("Menginisialisasi interaksi grab (Physics-Based)...");
+    console.log("Menginisialisasi interaksi grab (Smooth Physics)...");
 
     const highlightColor = new BABYLON.Color3.Green();
     
-    // Parameter Fisika (Sesuaikan jika benda terlalu lambat/cepat)
-    const MOVE_FORCE = 40;     // Kecepatan mengejar posisi tangan
-    const ROTATE_FORCE = 80;   // Kecepatan mengejar rotasi tangan
-    const DAMPING = 0.5;       // Meredam getaran
-
-    // Variabel untuk melacak item yang sedang dipegang via Mouse
+    // --- KONFIGURASI KHALUSAN ---
+    // MOVE_FORCE: Seberapa cepat benda mengejar tangan (Lebih rendah = lebih lambat/halus)
+    const MOVE_FORCE = 20;     
+    // ROTATE_FORCE: Kekuatan putaran (Lebih rendah = tidak tersentak saat tangan diputar)
+    const ROTATE_FORCE = 10;   
+    // GRAB_DAMPING: "Rem" saat dipegang (0 = licin, 1 = seperti dalam madu). 
+    // Nilai tinggi (0.8) penting untuk mencegah getaran liar.
+    const GRAB_DAMPING = 0.8;  
+    
+    // Variabel state Mouse
     let currentMouseDragTarget = null;
     let currentMouseDragMesh = null;
     let mouseObserver = null;
+    let originalDamping = 0; // Untuk menyimpan damping asli benda
 
     // ============================================================
     // FUNGSI HELPER: GERAKAN FISIKA (UNTUK VR & MOUSE)
     // ============================================================
-    // Fungsi ini menghitung gaya yang diperlukan agar objek mengejar target
-    // tanpa menembus dinding.
     const applyPhysicsMove = (mesh, targetPosition, targetRotationQuat) => {
         if (!mesh.physicsImpostor) return;
 
@@ -30,22 +33,29 @@ function setupVRInput(xr, scene) {
         const currentPos = mesh.getAbsolutePosition();
         const diff = targetPosition.subtract(currentPos);
         
-        // Terapkan kecepatan linear (Velocity)
-        // V = Jarak * Kekuatan
-        const velocity = diff.scale(MOVE_FORCE);
+        // Cek jarak. Jika sangat dekat, kurangi tenaga drastis agar tidak bergetar
+        const distance = diff.length();
+        let currentForce = MOVE_FORCE;
+        if (distance < 0.05) currentForce = MOVE_FORCE * 0.5; // Pelankan saat dekat
+
+        const velocity = diff.scale(currentForce);
+        
+        // BATASI KECEPATAN MAKSIMAL (Safety Cap)
+        // Agar benda tidak "meledak" jika tersangkut dinding lalu lepas
+        const maxSpeed = 5; 
+        if (velocity.length() > maxSpeed) {
+            velocity.normalize().scaleInPlace(maxSpeed);
+        }
+
         mesh.physicsImpostor.setLinearVelocity(velocity);
 
-        // 2. ROTASI: (Opsional, agar benda memutar mengikuti tangan)
+        // 2. ROTASI (Menggunakan Quaternion Slerp Logic untuk Physics)
         if (targetRotationQuat && mesh.rotationQuaternion) {
-            // Hitung perbedaan rotasi (Quaternion)
-            // Target * Inverse(Current)
+            // Hitung perbedaan rotasi
             const qDiff = targetRotationQuat.multiply(BABYLON.Quaternion.Inverse(mesh.rotationQuaternion));
-            
-            // Konversi Quaternion ke Euler (Pitch, Yaw, Roll)
             const { x, y, z } = qDiff.toEulerAngles();
 
-            // Sederhanakan kalkulasi angular velocity (pendekatan sederhana)
-            // Jika sudut > 180 derajat, putar balik agar lebih dekat
+            // Logic putaran terpendek (agar tidak memutar 360 derajat konyol)
             const fixAngle = (angle) => {
                 if (angle > Math.PI) return angle - 2 * Math.PI;
                 if (angle < -Math.PI) return angle + 2 * Math.PI;
@@ -53,15 +63,15 @@ function setupVRInput(xr, scene) {
             };
 
             const angVel = new BABYLON.Vector3(fixAngle(x), fixAngle(y), fixAngle(z));
+            // Terapkan angular velocity dengan damping rotasi bawaan physics engine
             mesh.physicsImpostor.setAngularVelocity(angVel.scale(ROTATE_FORCE));
         }
     };
 
 
     // ============================================================
-    // 1. MOUSE DRAG (Desktop - Physics Based)
+    // 1. MOUSE DRAG (Desktop - Smooth)
     // ============================================================
-
     const hlMouse = new BABYLON.HighlightLayer("HL_MOUSE_PHYSICS", scene);
 
     scene.meshes.forEach((mesh) => {
@@ -69,58 +79,60 @@ function setupVRInput(xr, scene) {
             const wrapper = mesh;
             const childModel = wrapper.getChildren()[0];
 
-            // Gunakan PointerDragBehavior tapi matikan gerakan otomatisnya
             const dragBehavior = new BABYLON.PointerDragBehavior({});
-            dragBehavior.moveAttached = false; // PENTING: Jangan biarkan behavior menggerakkan mesh langsung!
+            dragBehavior.moveAttached = false; // Matikan gerakan otomatis
             
             wrapper.addBehavior(dragBehavior);
 
             dragBehavior.onDragStartObservable.add((event) => {
                 currentMouseDragMesh = wrapper;
                 
-                // Aktifkan highlight
                 if (childModel) {
                     childModel.getChildMeshes(false).forEach(m => hlMouse.addMesh(m, highlightColor));
                 }
 
-                // Reset Velocity awal agar tidak terpental
                 if (wrapper.physicsImpostor) {
-                    wrapper.physicsImpostor.wakeUp(); // Bangunkan fisika
+                    wrapper.physicsImpostor.wakeUp();
+                    // SIMPAN DAMPING ASLI
+                    originalDamping = wrapper.physicsImpostor.linearDamping;
+                    // BERIKAN DAMPING TINGGI (Agar gerakan halus tidak liar)
+                    wrapper.physicsImpostor.linearDamping = GRAB_DAMPING; 
+                    wrapper.physicsImpostor.angularDamping = 0.5;
+
                     wrapper.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                     wrapper.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
-                    // JANGAN setMass(0)! Biarkan tetap punya massa agar bisa tabrakan.
                 }
 
-                // Mulai Loop Fisika untuk Mouse
                 mouseObserver = scene.onBeforeRenderObservable.add(() => {
                     if (currentMouseDragMesh && currentMouseDragTarget) {
-                        // Mouse hanya mengontrol Posisi, Rotasi dibiarkan natural (atau tegak)
-                        // Kita set targetRotation null agar rotasi bebas/mengikuti gravitasi
+                        // Mouse tidak mengatur rotasi, hanya posisi
                         applyPhysicsMove(currentMouseDragMesh, currentMouseDragTarget, null);
                     }
                 });
             });
 
             dragBehavior.onDragObservable.add((event) => {
-                // Simpan posisi target mouse saat ini
                 currentMouseDragTarget = event.dragPlanePoint;
             });
 
             dragBehavior.onDragEndObservable.add(() => {
-                // Hentikan Loop
+                if (currentMouseDragMesh && currentMouseDragMesh.physicsImpostor) {
+                    // KEMBALIKAN DAMPING KE ASAL (Agar saat dilempar bisa melayang natural)
+                    currentMouseDragMesh.physicsImpostor.linearDamping = originalDamping;
+                    currentMouseDragMesh.physicsImpostor.angularDamping = 0;
+                }
+
                 scene.onBeforeRenderObservable.remove(mouseObserver);
                 mouseObserver = null;
                 currentMouseDragTarget = null;
                 currentMouseDragMesh = null;
-
-                // Matikan highlight
                 hlMouse.removeAllMeshes();
             });
         }
     });
 
     // ============================================================
-    // 2. VR GRAB (Virtual Reality - Physics Based)
+    // 2. VR GRAB (Virtual Reality - Smooth)
     // ============================================================
 
     if (!xr) {
@@ -139,9 +151,9 @@ function setupVRInput(xr, scene) {
             
             if (!grabComponent) return;
 
-            // Variabel lokal per kontroler
             let grabbedMesh = null;
-            let grabObserver = null; // Observer khusus untuk kontroler ini
+            let grabObserver = null;
+            let vrOriginalDamping = 0;
             const hand = controller.grip || controller.pointer; 
 
             grabComponent.onButtonStateChangedObservable.add((state) => {
@@ -150,7 +162,7 @@ function setupVRInput(xr, scene) {
                     // --- GRAB START ---
                     if (grabbedMesh) return; 
 
-                    // Cek UI (Tombol i) - Agar tidak grab saat tekan tombol
+                    // Cek UI
                     if (xr.pointerSelection) {
                         const meshUnderPointer = xr.pointerSelection.getMeshUnderPointer(controller.uniqueId);
                         if (meshUnderPointer && meshUnderPointer.name.startsWith("btn_plane_")) {
@@ -158,9 +170,9 @@ function setupVRInput(xr, scene) {
                         }
                     }
 
-                    // Cari Mesh Terdekat
+                    // Logika Jarak
                     let closestMesh = null;
-                    let minDistance = 0.2; // Jarak grab
+                    let minDistance = 0.25; // Sedikit diperbesar agar mudah diambil
 
                     scene.meshes.forEach((mesh) => {
                         if (mesh.metadata && mesh.metadata.isGrabbable) {
@@ -184,25 +196,27 @@ function setupVRInput(xr, scene) {
                             childModel.getChildMeshes(false).forEach(m => hlVR.addMesh(m, highlightColor));
                         }
 
-                        // SETUP FISIKA
+                        // SETUP FISIKA SMOOTH
                         if (grabbedMesh.physicsImpostor) {
                             grabbedMesh.physicsImpostor.wakeUp();
-                            // Reset momentum awal
+                            
+                            // Simpan & Ubah Damping
+                            vrOriginalDamping = grabbedMesh.physicsImpostor.linearDamping;
+                            grabbedMesh.physicsImpostor.linearDamping = GRAB_DAMPING; // KUNCI KHALUSAN
+                            grabbedMesh.physicsImpostor.angularDamping = 0.5;
+
+                            // Reset momentum
                             grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                             grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
-                            
-                            // PENTING: Kita TIDAK melakukan setParent(hand)
-                            // PENTING: Kita TIDAK melakukan setMass(0)
                         }
 
-                        // MULAI LOOP UPDATE FISIKA
-                        // Setiap frame, dorong benda ke arah tangan
+                        // LOOP FISIKA
                         grabObserver = scene.onBeforeRenderObservable.add(() => {
                             if (grabbedMesh && hand) {
                                 applyPhysicsMove(
                                     grabbedMesh, 
                                     hand.getAbsolutePosition(), 
-                                    hand.rotationQuaternion // Ikuti rotasi tangan juga
+                                    hand.rotationQuaternion 
                                 );
                             }
                         });
@@ -212,14 +226,13 @@ function setupVRInput(xr, scene) {
                     // --- GRAB RELEASE ---
                     if (grabbedMesh) {
                         
-                        // Hentikan Loop Fisika
                         scene.onBeforeRenderObservable.remove(grabObserver);
                         grabObserver = null;
 
+                        // Kembalikan sifat fisik asli saat dilepas
                         if (grabbedMesh.physicsImpostor) {
-                            // Lempar Benda (Opsional)
-                            // Ambil momentum terakhir tangan (jika ada) atau biarkan inersia fisika bekerja
-                            // Karena kita menggunakan force tiap frame, benda otomatis punya momentum saat dilepas.
+                            grabbedMesh.physicsImpostor.linearDamping = vrOriginalDamping;
+                            grabbedMesh.physicsImpostor.angularDamping = 0; 
                         }
 
                         hlVR.removeAllMeshes();
@@ -230,5 +243,5 @@ function setupVRInput(xr, scene) {
         });
     });
 
-    console.log("✅ Logika grab Physics-Based berhasil diinisialisasi.");
+    console.log("✅ Logika grab Smooth Physics berhasil diinisialisasi.");
 }
