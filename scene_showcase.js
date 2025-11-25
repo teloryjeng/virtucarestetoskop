@@ -15,6 +15,13 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
     try {
         await enablePhysics(scene); // Pastikan fungsi ini mengembalikan promise
         console.log("✅ Physics engine berhasil diinisialisasi");
+        // --- TAMBAHKAN KODE INI ---
+        const phEngine = scene.getPhysicsEngine();
+        if (phEngine) {
+            // Memaksa physics engine menghitung 10x lebih teliti per frame
+            // Ini sangat ampuh mencegah benda tembus dinding
+            phEngine.setSubTimeStep(10); 
+        }
     } catch (error) {
         console.error("❌ Gagal menginisialisasi physics engine:", error);
         // Fallback: Coba inisialisasi physics manual
@@ -27,6 +34,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
             console.warn("⚠️ Physics engine tidak tersedia, melanjutkan tanpa physics");
         }
     }
+
     scene.gravity = new BABYLON.Vector3(0, -9.81, 0); // Pastikan gravitasi di-set jika enablePhysics tidak melakukannya
 
     // ================================
@@ -1189,4 +1197,3 @@ confirmationStack.addControl(finalButtonsContainer);
     // HAPUS: engine.runRenderLoop(...)
     // HAPUS: window.addEventListener("resize", ...)
 }
-
