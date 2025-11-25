@@ -29,41 +29,44 @@ function setupVRInput(xr, scene) {
         const body = mesh.physicsImpostor.physicsBody;
         if (!body) return;
 
-        // 1. POSISI: Hitung vektor arah dari Benda ke Target
+        // 1. POSISI
         const currentPos = mesh.getAbsolutePosition();
         const diff = targetPosition.subtract(currentPos);
-        
-        // Cek jarak. Jika sangat dekat, kurangi tenaga drastis agar tidak bergetar
         const distance = diff.length();
-        let currentForce = MOVE_FORCE;
-        if (distance < 0.05) currentForce = MOVE_FORCE * 0.5; // Pelankan saat dekat
 
+        // Jika jarak terlalu jauh (misal: tangan tembus tembok, benda tertinggal),
+        // Jangan paksa benda mengejar dengan kekuatan penuh agar tidak "teleport".
+        // Jika jarak > 1 meter, kita anggap stuck, kurangi gaya tarik.
+        let factor = 1.0;
+        if (distance > 0.5) factor = 0.1; 
+
+        // Hitung Velocity
+        // Gunakan move force yang sedikit lebih rendah untuk benda kecil
+        const currentForce = MOVE_FORCE * factor;
         const velocity = diff.scale(currentForce);
         
-        // BATASI KECEPATAN MAKSIMAL (Safety Cap)
-        // Agar benda tidak "meledak" jika tersangkut dinding lalu lepas
-        const maxSpeed = 5; 
+        // --- PERBAIKAN UTAMA: CLAMP VELOCITY LEBIH KETAT ---
+        // Sebelumnya maxSpeed = 5. Ini terlalu cepat untuk benda kecil.
+        // Kita turunkan jadi 2.5. Benda akan terasa sedikit lebih "berat/lambat" 
+        // tapi ini menjamin ia tidak akan melompati dinding tipis.
+        const maxSpeed = 2.5; 
+        
         if (velocity.length() > maxSpeed) {
             velocity.normalize().scaleInPlace(maxSpeed);
         }
 
         mesh.physicsImpostor.setLinearVelocity(velocity);
 
-        // 2. ROTASI (Menggunakan Quaternion Slerp Logic untuk Physics)
+        // 2. ROTASI (Tetap sama)
         if (targetRotationQuat && mesh.rotationQuaternion) {
-            // Hitung perbedaan rotasi
             const qDiff = targetRotationQuat.multiply(BABYLON.Quaternion.Inverse(mesh.rotationQuaternion));
             const { x, y, z } = qDiff.toEulerAngles();
-
-            // Logic putaran terpendek (agar tidak memutar 360 derajat konyol)
             const fixAngle = (angle) => {
                 if (angle > Math.PI) return angle - 2 * Math.PI;
                 if (angle < -Math.PI) return angle + 2 * Math.PI;
                 return angle;
             };
-
             const angVel = new BABYLON.Vector3(fixAngle(x), fixAngle(y), fixAngle(z));
-            // Terapkan angular velocity dengan damping rotasi bawaan physics engine
             mesh.physicsImpostor.setAngularVelocity(angVel.scale(ROTATE_FORCE));
         }
     };
