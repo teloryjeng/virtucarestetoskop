@@ -1,20 +1,21 @@
-// js/interactions.js (Versi UI Priority & Smooth Physics)
+// js/interactions.js (Final: Dead Drop / Jatuh Tegak Lurus)
 
 function setupVRInput(xr, scene) {
-    console.log("Menginisialisasi interaksi grab (UI Priority Fix)...");
+    console.log("Menginisialisasi interaksi grab (Dead Drop Release)...");
 
     const highlightColor = new BABYLON.Color3.Green();
     
-    // --- KONFIGURASI RESPONSIVITAS ---
+    // --- KONFIGURASI ---
     const MOVE_FORCE = 40;     
     const ROTATE_FORCE = 10;   
     const GRAB_DAMPING = 0.5;  
-    
+
     // Variabel state Mouse
     let currentMouseDragTarget = null;
     let currentMouseDragMesh = null;
     let mouseObserver = null;
     let originalDamping = 0;
+    let originalAngularDamping = 0;
 
     // ============================================================
     // FUNGSI HELPER: GERAKAN FISIKA
@@ -31,10 +32,11 @@ function setupVRInput(xr, scene) {
         const distance = diff.length();
         
         let factor = 1.0;
-        if (distance > 0.5) factor = 0.1; // Jika stuck jauh, kurangi tenaga
+        if (distance > 0.5) factor = 0.1; 
 
         const velocity = diff.scale(MOVE_FORCE * factor);
         
+        // Batas Kecepatan (Safety)
         const maxSpeed = 5; 
         if (velocity.length() > maxSpeed) {
             velocity.normalize().scaleInPlace(maxSpeed);
@@ -62,7 +64,6 @@ function setupVRInput(xr, scene) {
     // ============================================================
     // 1. MOUSE DRAG (Desktop)
     // ============================================================
-    // (Bagian Mouse tidak berubah karena pakai pointer terpisah)
     const hlMouse = new BABYLON.HighlightLayer("HL_MOUSE_PHYSICS", scene);
     scene.meshes.forEach((mesh) => {
         if (mesh.metadata && mesh.metadata.isGrabbable) {
@@ -81,8 +82,10 @@ function setupVRInput(xr, scene) {
                 if (wrapper.physicsImpostor) {
                     wrapper.physicsImpostor.wakeUp();
                     originalDamping = wrapper.physicsImpostor.linearDamping;
+                    originalAngularDamping = wrapper.physicsImpostor.angularDamping;
+
                     wrapper.physicsImpostor.linearDamping = GRAB_DAMPING; 
-                    wrapper.physicsImpostor.angularDamping = 0.5;
+                    wrapper.physicsImpostor.angularDamping = GRAB_DAMPING; 
                     wrapper.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                     wrapper.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                 }
@@ -100,7 +103,11 @@ function setupVRInput(xr, scene) {
             dragBehavior.onDragEndObservable.add(() => {
                 if (currentMouseDragMesh && currentMouseDragMesh.physicsImpostor) {
                     currentMouseDragMesh.physicsImpostor.linearDamping = originalDamping;
-                    currentMouseDragMesh.physicsImpostor.angularDamping = 0;
+                    currentMouseDragMesh.physicsImpostor.angularDamping = originalAngularDamping;
+                    
+                    // --- MATIKAN KECEPATAN (MOUSE) ---
+                    currentMouseDragMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
+                    currentMouseDragMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                 }
                 scene.onBeforeRenderObservable.remove(mouseObserver);
                 mouseObserver = null;
@@ -112,13 +119,10 @@ function setupVRInput(xr, scene) {
     });
 
     // ============================================================
-    // 2. VR GRAB (Virtual Reality - UI Priority Fix)
+    // 2. VR GRAB (Virtual Reality)
     // ============================================================
 
-    if (!xr) {
-        console.warn("VR (xr) tidak aktif. VR Grab tidak diinisialisasi.");
-        return;
-    }
+    if (!xr) { return; }
 
     const hlVR = new BABYLON.HighlightLayer("HL_VR_PHYSICS", scene);
 
@@ -134,6 +138,7 @@ function setupVRInput(xr, scene) {
             let grabbedMesh = null;
             let grabObserver = null;
             let vrOriginalDamping = 0;
+            let vrOriginalAngularDamping = 0;
             const hand = controller.grip || controller.pointer; 
 
             grabComponent.onButtonStateChangedObservable.add((state) => {
@@ -142,26 +147,17 @@ function setupVRInput(xr, scene) {
                     // --- GRAB START ---
                     if (grabbedMesh) return; 
 
-                    // ===========================================================
-                    // FIX UI: CEK LASER POINTER TERLEBIH DAHULU
-                    // ===========================================================
-                    // Kita menembakkan sinar (Ray) dari kontroler.
-                    // Kita mencari HANYA mesh yang namanya diawali "btn_plane_"
-                    // Jika kena, maka BERHENTI (return), jangan jalankan logika Grab.
-                    
-                    const ray = controller.getForwardRay(5); // Panjang sinar 5 meter
+                    // 1. CEK UI (Raycast Filter)
+                    const ray = controller.getForwardRay(5); 
                     const hitInfo = scene.pickWithRay(ray, (mesh) => {
-                        // Filter: Hanya cek mesh yang namanya tombol UI
                         return mesh.name.startsWith("btn_plane_") || mesh.name.startsWith("btn_gui_");
                     });
 
                     if (hitInfo && hitInfo.hit) {
-                        console.log("Pointer mengenai UI: " + hitInfo.pickedMesh.name + ". Grab dibatalkan.");
-                        return; // <--- INI KUNCINYA. Hentikan Grab.
+                        return; 
                     }
-                    // ===========================================================
 
-                    // --- Logika Grab Normal ---
+                    // 2. Logika Jarak
                     let closestMesh = null;
                     let minDistance = 0.25; 
 
@@ -188,9 +184,13 @@ function setupVRInput(xr, scene) {
 
                         if (grabbedMesh.physicsImpostor) {
                             grabbedMesh.physicsImpostor.wakeUp();
+                            
                             vrOriginalDamping = grabbedMesh.physicsImpostor.linearDamping;
+                            vrOriginalAngularDamping = grabbedMesh.physicsImpostor.angularDamping;
+                            
                             grabbedMesh.physicsImpostor.linearDamping = GRAB_DAMPING; 
-                            grabbedMesh.physicsImpostor.angularDamping = 0.5;
+                            grabbedMesh.physicsImpostor.angularDamping = GRAB_DAMPING;
+
                             grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                             grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                         }
@@ -211,10 +211,20 @@ function setupVRInput(xr, scene) {
                     if (grabbedMesh) {
                         scene.onBeforeRenderObservable.remove(grabObserver);
                         grabObserver = null;
+
                         if (grabbedMesh.physicsImpostor) {
+                            // Kembalikan Damping Asli
                             grabbedMesh.physicsImpostor.linearDamping = vrOriginalDamping;
-                            grabbedMesh.physicsImpostor.angularDamping = 0; 
+                            grabbedMesh.physicsImpostor.angularDamping = vrOriginalAngularDamping; 
+
+                            // --- BAGIAN INI YANG DIPERBAIKI (DEAD DROP) ---
+                            // Paksa kecepatan menjadi NOL (Berhenti total di udara lalu jatuh karena gravitasi)
+                            grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
+                            
+                            // Paksa putaran berhenti juga
+                            grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                         }
+
                         hlVR.removeAllMeshes();
                         grabbedMesh = null;
                     }
@@ -223,7 +233,5 @@ function setupVRInput(xr, scene) {
         });
     });
 
-    console.log("✅ Logika grab UI Priority & Smooth Physics berhasil diinisialisasi.");
+    console.log("✅ Logika grab Dead Drop (Jatuh Tegak) diinisialisasi.");
 }
-
-
