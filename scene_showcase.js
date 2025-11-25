@@ -327,8 +327,8 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
               pos: new BABYLON.Vector3(2.5, 2, 9.9),
               scale: new BABYLON.Vector3(0.001, 0.001, 0.001),
               physics: { mass: 1, restitution: 0.4 },
-              physicsBox: { width: 0.2, height: 0.1, depth: 0.7 },
-              visualOffset: { x: 0, y: -0.05, z: 0 }, // y = -height / 2 (Sesuaikan!)
+              physicsBox: { width: 0.2, height: 0.28, depth: 0.7 },
+              visualOffset: { x: 0, y: -0.2, z: 0 }, // y = -height / 2 (Sesuaikan!)
             qa:[
                 { 
                       q: "Mengapa penyuntikan harus dilakukan di area tertentu, bukan sembarang tempat??", 
