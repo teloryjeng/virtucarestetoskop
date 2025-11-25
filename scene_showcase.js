@@ -15,6 +15,13 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
     try {
         await enablePhysics(scene); // Pastikan fungsi ini mengembalikan promise
         console.log("✅ Physics engine berhasil diinisialisasi");
+        // --- TAMBAHKAN KODE INI ---
+        const phEngine = scene.getPhysicsEngine();
+        if (phEngine) {
+            // Memaksa physics engine menghitung 10x lebih teliti per frame
+            // Ini sangat ampuh mencegah benda tembus dinding
+            phEngine.setSubTimeStep(10); 
+        }
     } catch (error) {
         console.error("❌ Gagal menginisialisasi physics engine:", error);
         // Fallback: Coba inisialisasi physics manual
