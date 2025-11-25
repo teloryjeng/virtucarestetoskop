@@ -15,13 +15,6 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
     try {
         await enablePhysics(scene); // Pastikan fungsi ini mengembalikan promise
         console.log("✅ Physics engine berhasil diinisialisasi");
-        // --- TAMBAHKAN KODE INI ---
-        const phEngine = scene.getPhysicsEngine();
-        if (phEngine) {
-            // Memaksa physics engine menghitung 10x lebih teliti per frame
-            // Ini sangat ampuh mencegah benda tembus dinding
-            phEngine.setSubTimeStep(10); 
-        }
     } catch (error) {
         console.error("❌ Gagal menginisialisasi physics engine:", error);
         // Fallback: Coba inisialisasi physics manual
@@ -126,6 +119,24 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
 
     // Dinding Belakang (Pintu Masuk)
     createInvisibleWall("wallBack", 10, 5, 1, new BABYLON.Vector3(-2, 2.5, -2.3));
+    // === KODE COLLISION BOX ASLI ===
+    const mejaCollision1 = BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 1.6, width: 0.7, depth: 10}, scene);
+    mejaCollision1.position = new BABYLON.Vector3(-1.5, 0.47, 12);
+    mejaCollision1.isVisible = false;
+    mejaCollision1.physicsImpostor = new BABYLON.PhysicsImpostor(mejaCollision1, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.2 }, scene);
+    assets.push(mejaCollision1); // Lacak
+
+    const mejaCollision2 = BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 1.6, width: 0.7, depth: 10}, scene);
+    mejaCollision2.position = new BABYLON.Vector3(2.5, 0.47, 12);
+    mejaCollision2.isVisible = false;
+    mejaCollision2.physicsImpostor = new BABYLON.PhysicsImpostor(mejaCollision2, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.2 }, scene);
+    assets.push(mejaCollision2); // Lacak
+
+    const infuscollision = BABYLON.MeshBuilder.CreateBox("infuscollision", {height: 5, width: 1.4, depth: 1}, scene);
+    infuscollision.position = new BABYLON.Vector3(2.6, 0, 5.5);
+    infuscollision.isVisible = false;
+    infuscollision.checkCollisions = true;
+    assets.push(infuscollision); // Lacak
     // ================================
     // 3. HAPUS 'let xr = null;'
     // 3. HAPUS 'try { xr = await scene.createDefaultXRExperienceAsync(... }'
@@ -850,24 +861,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
      }
    });
 
-    // === KODE COLLISION BOX ASLI ===
-    const mejaCollision1 = BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 1.6, width: 0.7, depth: 10}, scene);
-    mejaCollision1.position = new BABYLON.Vector3(-1.5, 0.47, 12);
-    mejaCollision1.isVisible = false;
-    mejaCollision1.physicsImpostor = new BABYLON.PhysicsImpostor(mejaCollision1, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.2 }, scene);
-    assets.push(mejaCollision1); // Lacak
-
-    const mejaCollision2 = BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 1.6, width: 0.7, depth: 10}, scene);
-    mejaCollision2.position = new BABYLON.Vector3(2.5, 0.47, 12);
-    mejaCollision2.isVisible = false;
-    mejaCollision2.physicsImpostor = new BABYLON.PhysicsImpostor(mejaCollision2, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.2 }, scene);
-    assets.push(mejaCollision2); // Lacak
-
-    const infuscollision = BABYLON.MeshBuilder.CreateBox("infuscollision", {height: 5, width: 1.4, depth: 1}, scene);
-    infuscollision.position = new BABYLON.Vector3(2.6, 0, 5.5);
-    infuscollision.isVisible = false;
-    infuscollision.checkCollisions = true;
-    assets.push(infuscollision); // Lacak
+    
 
     setupVRInput(xr, scene); // Fungsi ini dari interactions.js
     const maskotPivot = await initMaskotAI(scene); // Fungsi ini dari mascotAI.js
