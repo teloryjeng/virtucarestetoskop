@@ -7,12 +7,12 @@ function setupVRInput(xr, scene) {
     
     // --- KONFIGURASI KHALUSAN ---
     // MOVE_FORCE: Seberapa cepat benda mengejar tangan (Lebih rendah = lebih lambat/halus)
-    const MOVE_FORCE = 20;     
+    const MOVE_FORCE = 50;     
     // ROTATE_FORCE: Kekuatan putaran (Lebih rendah = tidak tersentak saat tangan diputar)
     const ROTATE_FORCE = 10;   
     // GRAB_DAMPING: "Rem" saat dipegang (0 = licin, 1 = seperti dalam madu). 
     // Nilai tinggi (0.8) penting untuk mencegah getaran liar.
-    const GRAB_DAMPING = 0.8;  
+    const GRAB_DAMPING = 0.2;  
     
     // Variabel state Mouse
     let currentMouseDragTarget = null;
@@ -49,7 +49,7 @@ function setupVRInput(xr, scene) {
         // Sebelumnya maxSpeed = 5. Ini terlalu cepat untuk benda kecil.
         // Kita turunkan jadi 2.5. Benda akan terasa sedikit lebih "berat/lambat" 
         // tapi ini menjamin ia tidak akan melompati dinding tipis.
-        const maxSpeed = 2.5; 
+        const maxSpeed = 10; 
         
         if (velocity.length() > maxSpeed) {
             velocity.normalize().scaleInPlace(maxSpeed);
@@ -248,3 +248,4 @@ function setupVRInput(xr, scene) {
 
     console.log("✅ Logika grab Smooth Physics berhasil diinisialisasi.");
 }
+
