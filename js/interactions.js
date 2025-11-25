@@ -8,7 +8,7 @@ function setupVRInput(xr, scene) {
     // --- KONFIGURASI RESPONSIVITAS ---
     const MOVE_FORCE = 80;     
     const ROTATE_FORCE = 50;   
-    const GRAB_DAMPING = 0.1;  
+    const GRAB_DAMPING = 0.5;  
     
     // Variabel state Mouse
     let currentMouseDragTarget = null;
@@ -225,3 +225,4 @@ function setupVRInput(xr, scene) {
 
     console.log("✅ Logika grab UI Priority & Smooth Physics berhasil diinisialisasi.");
 }
+
