@@ -1,18 +1,74 @@
-// js/grab.js (Versi Velocity Cap: Gerak Lancar & Anti-Tembus)
+// js/grab.js (Versi Raycast Blocking: Solusi Akhir Anti-Tembus)
 
 function setupVRInput(xr, scene) {
-    console.log("Menginisialisasi interaksi grab dengan Speed Limiter...");
+    console.log("Menginisialisasi interaksi grab dengan Raycast Blocker...");
 
     const highlightColor = new BABYLON.Color3.Green();
     
-    // --- PENGATURAN FISIKA ---
-    const RESPONSE_SPEED = 15; // Seberapa cepat bereaksi (makin tinggi makin responsif)
-    const MAX_VELOCITY = 5;    // [KUNCI ANTI-TEMBUS] Batas kecepatan maks (meter/detik)
-                               // Jika > 10, risiko tembus dinding meningkat.
-                               // Jika < 3, benda terasa sangat berat/lambat.
+    // --- KONFIGURASI ---
+    const RESPONSE_SPEED = 20; // Kecepatan respon
+    const MAX_VELOCITY = 4;    // Batas kecepatan maksimal (jangan terlalu tinggi)
+    const MAX_DISTANCE = 0.5;  // [PENTING] Batas jarak tarikan efektif.
+                               // Walau mouse 10 meter jauhnya, benda mengira mouse cuma 0.5 meter jauhnya.
+                               // Ini mencegah "ledakan" kecepatan saat mouse digeser jauh.
+
+    // Helper: Raycast untuk mencegah target tembus dinding
+    // Mengembalikan posisi baru yang aman (tidak di balik dinding)
+    const getSafeTarget = (currentPos, targetPos, selfMesh) => {
+        const direction = targetPos.subtract(currentPos);
+        const length = direction.length();
+        
+        // Normalisasi arah
+        direction.normalize();
+
+        // Buat Ray dari pusat benda ke arah target
+        const ray = new BABYLON.Ray(currentPos, direction, length);
+
+        // Tembakkan Ray (Abaikan diri sendiri dan UI)
+        const hit = scene.pickWithRay(ray, (mesh) => {
+            return mesh !== selfMesh && 
+                   mesh.name !== "ground" && // Opsional: abaikan lantai jika ingin sliding lancar
+                   !mesh.name.startsWith("btn_"); // Abaikan tombol UI
+        });
+
+        if (hit.hit && hit.pickedPoint) {
+            // Jika kena dinding, targetnya adalah TITIK DI DINDING (dikurangi sedikit biar gak nempel banget)
+            // Mundur 5cm dari dinding
+            return hit.pickedPoint.subtract(direction.scale(0.05)); 
+        }
+
+        return targetPos; // Jika tidak ada halangan, target tetap posisi mouse
+    };
+
+    // Helper: Hitung Velocity Aman
+    const calculateSafeVelocity = (currentPos, rawTargetPos, physicsImpostor) => {
+        // 1. Cek Tabrakan Dinding (Raycast)
+        const safeTarget = getSafeTarget(currentPos, rawTargetPos, physicsImpostor.object);
+
+        // 2. Hitung Vector Arah
+        let directionVector = safeTarget.subtract(currentPos);
+        let dist = directionVector.length();
+
+        // 3. [PENTING] CLAMP DISTANCE (Batas Jarak Tarikan)
+        // Jika jarak > MAX_DISTANCE, anggap jaraknya cuma MAX_DISTANCE.
+        // Ini mencegah tarikan "super kuat" saat mouse jauh banget.
+        if (dist > MAX_DISTANCE) {
+            directionVector = directionVector.normalize().scale(MAX_DISTANCE);
+        }
+
+        // 4. Hitung Velocity
+        let velocity = directionVector.scale(RESPONSE_SPEED);
+
+        // 5. Speed Limiter Terakhir (Hard Cap)
+        if (velocity.length() > MAX_VELOCITY) {
+            velocity = velocity.normalize().scale(MAX_VELOCITY);
+        }
+
+        return velocity;
+    };
 
     // ============================================================
-    // 1. MOUSE DRAG (Desktop - Velocity Based + Limiter)
+    // 1. MOUSE DRAG (Desktop - Raycast Safe)
     // ============================================================
 
     const hlMouse = new BABYLON.HighlightLayer("HL_MOUSE_PHYSICS", scene);
@@ -22,12 +78,9 @@ function setupVRInput(xr, scene) {
             const wrapper = mesh;
             const childModel = wrapper.getChildren()[0];
 
-            // Setup Drag Behavior
             const dragBehavior = new BABYLON.PointerDragBehavior({
-                dragPlaneNormal: new BABYLON.Vector3(0, 1, 0) // Drag di bidang horizontal
+                dragPlaneNormal: new BABYLON.Vector3(0, 1, 0)
             });
-            
-            // Matikan gerakan otomatis (kita gerakkan manual via fisika)
             dragBehavior.moveAttached = false; 
 
             wrapper.addBehavior(dragBehavior);
@@ -35,7 +88,6 @@ function setupVRInput(xr, scene) {
             dragBehavior.onDragStartObservable.add(() => {
                 if (wrapper.physicsImpostor) {
                     wrapper.physicsImpostor.wakeUp();
-                    // Reset kecepatan saat mulai grab agar tidak "loncat"
                     wrapper.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                     wrapper.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                 }
@@ -47,37 +99,19 @@ function setupVRInput(xr, scene) {
             dragBehavior.onDragObservable.add((event) => {
                 if (!wrapper.physicsImpostor) return;
 
-                // 1. Ambil posisi target (Mouse) dan posisi benda
-                const targetPos = event.dragPlanePoint;
                 const currentPos = wrapper.getAbsolutePosition();
+                const rawTargetPos = event.dragPlanePoint;
 
-                // 2. Hitung vektor arah (Target - Benda)
-                const direction = targetPos.subtract(currentPos);
-                
-                // 3. Hitung kecepatan berdasarkan jarak (Semakin jauh, semakin cepat ingin mengejar)
-                let velocity = direction.scale(RESPONSE_SPEED);
+                // --- GUNAKAN FUNGSI HELPER BARU ---
+                const safeVelocity = calculateSafeVelocity(currentPos, rawTargetPos, wrapper.physicsImpostor);
 
-                // --- LOGIKA ANTI-TEMBUS (SPEED LIMITER) ---
-                // Jika kecepatan yang diminta melebihi batas aman, potong kecepatannya.
-                const currentSpeed = velocity.length();
-                if (currentSpeed > MAX_VELOCITY) {
-                    // Normalisasi vektor (jadikan panjang 1) lalu kalikan dengan MAX
-                    velocity = velocity.normalize().scale(MAX_VELOCITY);
-                }
-                
-                // 4. Terapkan kecepatan ke benda
-                wrapper.physicsImpostor.setLinearVelocity(velocity);
-                
-                // 5. Kunci Rotasi (Agar benda tidak berputar liar saat nabrak dinding)
+                wrapper.physicsImpostor.setLinearVelocity(safeVelocity);
                 wrapper.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
-                // Opsional: Reset rotasi ke tegak lurus jika miring
-                // wrapper.rotationQuaternion = new BABYLON.Quaternion(); 
             });
 
             dragBehavior.onDragEndObservable.add(() => {
                 hlMouse.removeAllMeshes();
                 if (wrapper.physicsImpostor) {
-                    // Rem benda saat dilepas agar langsung berhenti (tidak meluncur)
                     wrapper.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                     wrapper.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                 }
@@ -86,7 +120,7 @@ function setupVRInput(xr, scene) {
     });
 
     // ============================================================
-    // 2. VR GRAB (VR - Velocity Based + Limiter)
+    // 2. VR GRAB (VR - Raycast Safe)
     // ============================================================
 
     if (!xr) return;
@@ -126,7 +160,6 @@ function setupVRInput(xr, scene) {
                         grabbedMesh = closest;
                         grabbedMesh.physicsImpostor.wakeUp();
                         
-                        // Highlight
                         const child = grabbedMesh.getChildren()[0];
                         if (child) child.getChildMeshes(false).forEach(m => hlVR.addMesh(m, highlightColor));
 
@@ -134,24 +167,13 @@ function setupVRInput(xr, scene) {
                         grabObserver = scene.onBeforeRenderObservable.add(() => {
                             if (!grabbedMesh || !grabbedMesh.physicsImpostor) return;
 
-                            const targetPos = hand.getAbsolutePosition();
                             const currentPos = grabbedMesh.getAbsolutePosition();
-                            const direction = targetPos.subtract(currentPos);
+                            const rawTargetPos = hand.getAbsolutePosition();
                             
-                            // Hitung kecepatan
-                            let velocity = direction.scale(RESPONSE_SPEED);
+                            // --- GUNAKAN FUNGSI HELPER BARU ---
+                            const safeVelocity = calculateSafeVelocity(currentPos, rawTargetPos, grabbedMesh.physicsImpostor);
 
-                            // --- VR SPEED LIMITER ---
-                            const speed = velocity.length();
-                            if (speed > MAX_VELOCITY) {
-                                velocity = velocity.normalize().scale(MAX_VELOCITY);
-                            }
-
-                            // Matikan gravitasi SEMENTARA saat dipegang agar ringan
-                            // (Opsional, tapi membantu kontrol di VR)
-                            // grabbedMesh.physicsImpostor.mass = 0.1; 
-
-                            grabbedMesh.physicsImpostor.setLinearVelocity(velocity);
+                            grabbedMesh.physicsImpostor.setLinearVelocity(safeVelocity);
                             grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                         });
                     }
@@ -160,10 +182,6 @@ function setupVRInput(xr, scene) {
                         scene.onBeforeRenderObservable.remove(grabObserver);
                         grabObserver = null;
                         
-                        // Kembalikan massa asli jika diubah
-                        // grabbedMesh.physicsImpostor.mass = 1;
-
-                        // Rem saat dilepas
                         if (grabbedMesh.physicsImpostor) {
                              grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                         }
@@ -176,5 +194,5 @@ function setupVRInput(xr, scene) {
         });
     });
 
-    console.log("✅ Interaksi Grab Velocity-Cap Siap.");
+    console.log("✅ Interaksi Raycast-Safe Siap.");
 }
