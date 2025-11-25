@@ -202,7 +202,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
               pos: new BABYLON.Vector3(-1.5, 2, 9.7),
               scale: new BABYLON.Vector3(0.13, 0.13, 0.13),
               physics: { mass: 1, restitution: 0.4 },
-              physicsBox: { width: 0.3, height: 0.3, depth: 0.5 },
+              physicsBox: { width: 0.28, height: 0.37, depth: 0.5 },
               visualOffset: { x: 0, y: -0.15, z: 0 }, // y = -height / 2 (Sesuaikan!)
               qa:[
                 { 
@@ -302,7 +302,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
               pos: new BABYLON.Vector3(2.5, 2, 7.8),
               scale: new BABYLON.Vector3(5, 5, 5),
               physics: { mass: 1, restitution: 0.4 },
-              physicsBox: { width: 0.4, height: 0.6, depth: 0.4 },
+              physicsBox: { width: 0.4, height: 0.6, depth: 0.2 },
               visualOffset: { x: 0, y: -0.2, z: 0 }, // y = -height / 2 (Sesuaikan!)
             qa:[
                 { 
@@ -353,7 +353,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
               scale: new BABYLON.Vector3(0.25, 0.25, 0.25),
               rotation: new BABYLON.Vector3(80, 160, 0),
               physics: { mass: 1, restitution: 0.4 },
-              physicsBox: { width: 0.2, height: 0.1, depth: 0.5 },
+              physicsBox: { width: 0.2, height: 0.15, depth: 0.5 },
               visualOffset: { x: 0, y: -0.05, z: 0 }, // y = -height / 2 (Sesuaikan!)
             qa:[
                 { 
