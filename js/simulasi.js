@@ -9,7 +9,7 @@ const engine = new BABYLON.Engine(canvas, true);
 // ================================
 // Definisikan Posisi Awal Item & Rotasi Awal
 // ================================
-const START_Y = 2.0; // Ketinggian awal item
+const START_Y = 1.65; // Ketinggian awal item
 const DEG_TO_RAD = Math.PI / 180; // Konversi Derajat ke Radian
 
 const ITEM_POSITIONS = {
@@ -18,14 +18,15 @@ const ITEM_POSITIONS = {
         rot: new BABYLON.Vector3(0, Math.PI, 0) // Rotasi awal Stethoscope
     },
     thermometer: {
-        pos: new BABYLON.Vector3(-16.3, START_Y, 27.5),
-        // Konversi dari (80, 160, 0) derajat ke radian
-        rot: new BABYLON.Vector3(0, 0, 0)
-    },
+    pos: new BABYLON.Vector3(-16.3, START_Y, 27.5),
+    // Rotasi 90 derajat (Math.PI / 2) pada sumbu X.
+    // Sumbu Y dan Z dikembalikan ke 0.
+    rot: new BABYLON.Vector3(Math.PI/2,Math.PI,0)
+},
     tensimeter: {
         pos: new BABYLON.Vector3(-17.5, START_Y, 27.5),
         // Konversi dari (-110, 160, 100) derajat ke radian
-        rot: new BABYLON.Vector3(-110 * DEG_TO_RAD, 160 * DEG_TO_RAD, 100 * DEG_TO_RAD)
+        rot: new BABYLON.Vector3(0, Math.PI, 2)
     }
 };
 
@@ -40,24 +41,27 @@ const createScene = async function () {
     let thermometerMesh = null;
     let tensimeterMesh = null;
     let stethoscopeMesh = null;
-    let chestpieceMesh = null;
+    let chestpieceMesh = null; // Mesh chestpiece yang terpisah
     // VARIABEL BARU UNTUK ATTACH STETOSKOP
     let isStethoscopeAttached = false; // Status apakah stetoskop sedang terpasang ke kamera
+    let isStethoscopeSnapped = false;
     let rightVRController = null; // Untuk menyimpan controller kanan
-let stethoscopeTube = null;   // Mesh tali stetoskop
-let tubeUpdateObserver = null;
-let isThermometerAttached = false; // Status termometer
-
+    let stethoscopeTube = null;   // Mesh tali stetoskop
+    let tubeUpdateObserver = null;
+    let isThermometerAttached = false; // Status termometer
+    let isTensimeterAttached = false;
     // Aktifkan Fisika (CannonJS)
     const gravityVector = new BABYLON.Vector3(0, -9.81, 0);
     // Pastikan library CannonJS sudah dimuat di HTML
     const physicsPlugin = new BABYLON.CannonJSPlugin();
     scene.enablePhysics(gravityVector, physicsPlugin);
 
+
+    
     // ================================
     // Buat ground (lantai dunia)
     // ================================
-    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 100, height: 100 }, scene);
+    const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 1000, height: 1000 }, scene);
     ground.checkCollisions = true;
     ground.position.y = 0;
 
@@ -67,13 +71,13 @@ let isThermometerAttached = false; // Status termometer
         { mass: 0, restitution: 0.9 },
         scene
     );
-    
+     
     // (PENAMBAHAN CAHAYA DAN KAMERA)
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
     light.intensity = 0.7;
     const dirLight = new BABYLON.DirectionalLight("dirLight", new BABYLON.Vector3(-1, -2, -1), scene);
     dirLight.intensity = 1;
-    const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-17, 2, 26), scene);
+    const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(-17, 2, 22), scene);
     camera.attachControl(canvas, true);
     camera.applyGravity = true;
     camera.ellipsoid = new BABYLON.Vector3(0.5, 1, 0.5);
@@ -110,7 +114,7 @@ let isThermometerAttached = false; // Status termometer
         plane.material = material;
         return plane;
     }
-    
+     
     // ... (IMPORT MODEL RUANGAN, AVATAR, XR) ...
     BABYLON.SceneLoader.ImportMeshAsync("", "assets/", "ruang_periksa.glb", scene
     ).then((result) => {
@@ -119,6 +123,17 @@ let isThermometerAttached = false; // Status termometer
             result.meshes[0].scaling = new BABYLON.Vector3(-0.5, 0.5, 0.5);
             result.meshes[0].getChildMeshes().forEach(mesh => {
                 mesh.checkCollisions = true;
+            });
+        }
+    }).catch((error) => { console.error("Gagal memuat model ruangan:", error); });
+
+            BABYLON.SceneLoader.ImportMeshAsync("", "assets/", "kasur.glb", scene
+    ).then((result) => {
+        if (result.meshes.length > 0) {
+            result.meshes[0].position = new BABYLON.Vector3(-21.9, 0, 9.7);
+            result.meshes[0].scaling = new BABYLON.Vector3(-0.46, 0.46, 0.46);
+            result.meshes[0].getChildMeshes().forEach(mesh => {
+                mesh.checkCollisions = false;
             });
         }
     }).catch((error) => { console.error("Gagal memuat model ruangan:", error); });
@@ -132,7 +147,7 @@ let isThermometerAttached = false; // Status termometer
             root.getChildMeshes().forEach((m) => { m.checkCollisions = true; });
         })
         .catch((e) => console.error("Gagal load Avatar:", e));
-    
+     
     // Aktifkan VR / XR Mode
     try {
         xr = await scene.createDefaultXRExperienceAsync({
@@ -143,7 +158,7 @@ let isThermometerAttached = false; // Status termometer
                 applyGravity: true,
                 ellipsoid: new BABYLON.Vector3(0.5, 2, 0.5)
             }
-            
+             
         });
         console.log("✅ WebXR aktif");
         xr.input.onControllerAddedObservable.add((controller) => {
@@ -155,7 +170,7 @@ let isThermometerAttached = false; // Status termometer
                 // FUNGSI PEMBANTU: Pasang listener ke trigger setelah motionController siap
                 const initTriggerListener = (motionController) => {
                     if (!motionController) return;
-                    
+                     
                     // Cari komponen trigger (biasanya 'xr-standard-trigger' atau 'trigger')
                     const triggerComponent = motionController.getComponent("xr-standard-trigger");
 
@@ -163,15 +178,18 @@ let isThermometerAttached = false; // Status termometer
                         triggerComponent.onButtonStateChangedObservable.add((component) => {
                             // JIKA TRIGGER DILEPAS (pressed === false) & STETOSKOP SEDANG NEMPEL
                             if (component.pressed === false) {
-            
+                             
                                 // Cek Stetoskop
                                 if (isStethoscopeAttached) {
-                                    releaseStethoscopeInPlace(); 
+                                    releaseStethoscopeInPlace(); 
                                 }
-                                
+                                 
                                 // Cek Termometer (TAMBAHAN BARU)
                                 if (isThermometerAttached) {
                                     releaseThermometer();
+                                }
+                                if (isTensimeterAttached) {
+                                    releaseTensimeter();
                                 }
                             }
                         });
@@ -222,7 +240,7 @@ let isThermometerAttached = false; // Status termometer
         camera.checkCollisions = true;
     }
 
-    const mejaCollision1= BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 0.5, width: 2, depth: 0.7}, scene);
+    const mejaCollision1= BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 0.4, width: 0.7, depth: 0.7}, scene);
     mejaCollision1.position = new BABYLON.Vector3(-17, 1, 27.5);
     mejaCollision1.isVisible = false;
     mejaCollision1.physicsImpostor = new BABYLON.PhysicsImpostor(
@@ -231,11 +249,72 @@ let isThermometerAttached = false; // Status termometer
         { mass: 0, restitution: 0.2 },
         scene
     );
+    const mejaCollision2= BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 0.6, width: 0.7, depth: 0.7}, scene);
+    mejaCollision2.position = new BABYLON.Vector3(-17.7, 1, 27.5);
+    mejaCollision2.isVisible = false;
+    mejaCollision2.physicsImpostor = new BABYLON.PhysicsImpostor(
+        mejaCollision2,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
+    const mejaCollision3= BABYLON.MeshBuilder.CreateBox("mejaCollision", {height: 0.6, width: 0.7, depth: 0.7}, scene);
+    mejaCollision3.position = new BABYLON.Vector3(-16.3, 1, 27.5);
+    mejaCollision3.isVisible = false;
+    mejaCollision3.physicsImpostor = new BABYLON.PhysicsImpostor(
+        mejaCollision3,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
+
+     const dindingCollision1= BABYLON.MeshBuilder.CreateBox("dindingCollision", {height: 10, width: 0.2, depth: 19}, scene);
+    dindingCollision1.position = new BABYLON.Vector3(-22.6, 1, 27.5);
+    dindingCollision1.isVisible = false;
+    dindingCollision1.physicsImpostor = new BABYLON.PhysicsImpostor(
+        dindingCollision1,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
+
+    const dindingCollision2= BABYLON.MeshBuilder.CreateBox("dindingCollision", {height: 10, width: 0.2, depth: 19}, scene);
+    dindingCollision2.position = new BABYLON.Vector3(-12.5, 1, 27.5);
+    dindingCollision2.isVisible = false;
+    dindingCollision2.physicsImpostor = new BABYLON.PhysicsImpostor(
+        dindingCollision2,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
+
+
+    const kasurCollision1= BABYLON.MeshBuilder.CreateBox("kasurCollision", {height: .4, width: 1, depth: 4}, scene);
+    kasurCollision1.position = new BABYLON.Vector3(-14.57, 0.8, 27.5);
+    kasurCollision1.isVisible = false;
+    kasurCollision1.checkCollisions=true;
+    kasurCollision1.physicsImpostor = new BABYLON.PhysicsImpostor(
+        kasurCollision1,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
+
+    const lantaiCollision= BABYLON.MeshBuilder.CreateBox("lantaiCollision", {height: 0.4, width: 16, depth: 19}, scene);
+    lantaiCollision.position = new BABYLON.Vector3(-14.57, 0, 27.5);
+    lantaiCollision.isVisible = false;
+    lantaiCollision.checkCollisions=true;
+    lantaiCollision.physicsImpostor = new BABYLON.PhysicsImpostor(
+        lantaiCollision,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.2 },
+        scene
+    );
 
     // Pasien
     BABYLON.SceneLoader.ImportMesh("", "assets/", "pasien.glb", scene, function (meshes) {
         const rootMesh = meshes[0];
-        rootMesh.position = new BABYLON.Vector3(-14.7, 1.2, 25.5);
+        rootMesh.position = new BABYLON.Vector3(-14.7, 1.1, 25.5);
         rootMesh.scaling = new BABYLON.Vector3(1.2, 1.2, 1.2);
         rootMesh.rotation = new BABYLON.Vector3(3 * Math.PI / 2, 0, 3.2);
         rootMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
@@ -245,20 +324,8 @@ let isThermometerAttached = false; // Status termometer
             scene
         );
     });
-    BABYLON.SceneLoader.ImportMesh("", "assets/", "chestpiece.glb", scene, function (meshes) {
-        chestpieceMesh = meshes[0];
-        
-        // Atur skala agar sesuai (mungkin perlu disesuaikan dengan model aslinya)
-        // Sesuaikan angka ini jika model terlalu besar/kecil
-        chestpieceMesh.scaling = new BABYLON.Vector3(0.04, 0.04, 0.04); 
-        
-        // Pastikan collision mati agar tidak mengganggu grab
-        chestpieceMesh.getChildMeshes().forEach(m => m.checkCollisions = false);
-        
-        // SEMBUNYIKAN DI AWAL (Hanya muncul saat dipegang)
-        findAllMeshesAndSetVisibility(chestpieceMesh, false);
-    });
-    // ... (GUI, SOUND, TARGET) ...
+
+    // --- GUI, SOUND, TARGET ---
     const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
     const tempText = new BABYLON.GUI.TextBlock("tempText", "");
     tempText.fontSize = 40;
@@ -266,34 +333,34 @@ let isThermometerAttached = false; // Status termometer
     tempText.isVisible = false;
     advancedTexture.addControl(tempText);
 
-    const StethoText = new BABYLON.GUI.TextBlock("StethoText", ""); 
+    const StethoText = new BABYLON.GUI.TextBlock("StethoText", ""); 
     StethoText.fontSize = 40;
     StethoText.color = "maroon";
     StethoText.isVisible = false;
     advancedTexture.addControl(StethoText);
 
-    const tensiText = new BABYLON.GUI.TextBlock("tensiText", ""); 
+    const tensiText = new BABYLON.GUI.TextBlock("tensiText", ""); 
     tensiText.fontSize = 40;
     tensiText.color = "cyan";
     tensiText.isVisible = false;
     advancedTexture.addControl(tensiText);
-    
+     
     // --- Efek Suara ---
-    const beepSound = new BABYLON.Sound("beep", "audio/beep.mp3", scene, null, { loop: false, volume: 1 }); 
+    const beepSound = new BABYLON.Sound("beep", "audio/beep.mp3", scene, null, { loop: false, volume: 1 }); 
     const heartbeatSound = new BABYLON.Sound("heartbeat", "audio/detak jantung.mp3", scene, null, { loop: true, volume: 1 });
-    
+     
     // Invisible interaction points
-    const chestTarget = BABYLON.MeshBuilder.CreateSphere("tChest", { diameter: 0.2 }, scene);
-    chestTarget.position = new BABYLON.Vector3(-14.6, 1.3, 27);
-    chestTarget.isVisible = false;
+    const chestTarget = BABYLON.MeshBuilder.CreateSphere("tChest", { diameter: 0.5 }, scene);
+    chestTarget.position = new BABYLON.Vector3(-14.6, 1.2, 27);
+    chestTarget.isVisible = false; // Set ke false agar tidak terlihat
 
-    const headTarget = BABYLON.MeshBuilder.CreateSphere("tHead", { diameter: 0.2 }, scene);
-    headTarget.position = new BABYLON.Vector3(-14.6, 1.25, 27.5);
-    headTarget.isVisible = false;
+    const headTarget = BABYLON.MeshBuilder.CreateSphere("tHead", { diameter: 0.5 }, scene);
+    headTarget.position = new BABYLON.Vector3(-14.6, 1.15, 27.5);
+    headTarget.isVisible = false; // Set ke false agar tidak terlihat
 
-    const armTarget = BABYLON.MeshBuilder.CreateSphere("tArm", { diameter: 0.2 }, scene);
-    armTarget.position = new BABYLON.Vector3(-14.25, 1.2, 27);
-    armTarget.isVisible = false;
+    const armTarget = BABYLON.MeshBuilder.CreateSphere("tArm", { diameter: 0.5 }, scene);
+    armTarget.position = new BABYLON.Vector3(-14.25, 1.1, 27);
+    armTarget.isVisible = false; // Set ke false agar tidak terlihat
 
     // Tautkan GUI ke Target
     tempText.linkWithMesh(headTarget);
@@ -307,38 +374,38 @@ let isThermometerAttached = false; // Status termometer
     headTarget.actionManager = new BABYLON.ActionManager(scene);
     chestTarget.actionManager = new BABYLON.ActionManager(scene);
     armTarget.actionManager = new BABYLON.ActionManager(scene);
-    
+     
     let isProcessing = false;
     let isHeartbeatPlaying = false;
-    
+     
     // ===================================================
     // Muat GLB dengan "Wrapper" Fisika
     // ===================================================
 
     const itemPhysicsSize = 0.2; // 20cm
-    const itemPhysicsMass = 0.01; // Massa ringan
+    const itemPhysicsMass = 0.5; // Massa ringan
 
     /**
-     * Fungsi Helper untuk memuat item grabbable dengan wrapper fisika
-     */
+     * Fungsi Helper untuk memuat item grabbable dengan wrapper fisika
+     */
     /**
-     * Helper: Memuat item dengan opsi rotasi otomatis (billboard).
-     * allowBillboard = false berarti item akan DIAM (statis) saat dipegang, tidak muter-muter.
-     */
+     * Helper: Memuat item dengan opsi rotasi otomatis (billboard).
+     * allowBillboard = false berarti item akan DIAM (statis) saat dipegang, tidak muter-muter.
+     */
     function createGrabbableItem(name, glbFile, position, scaling, wrapperRotation, allowBillboard = true) {
         // 1. Buat Wrapper
         const wrapper = BABYLON.MeshBuilder.CreateBox(name + "Wrapper", { size: itemPhysicsSize }, scene);
-        wrapper.position = position; 
-        wrapper.isVisible = false; 
+        wrapper.position = position; 
+        wrapper.isVisible = false; 
         // PAKSA MATI BILLBOARD DARI AWAL
-        wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
+        wrapper.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
 
         if (wrapperRotation) {
-            wrapper.rotation.copyFrom(wrapperRotation); 
+            wrapper.rotation.copyFrom(wrapperRotation); 
         }
 
         wrapper.metadata = { isGrabbable: true, itemData: { title: name } };
-        
+         
         // 2. Fisika
         wrapper.physicsImpostor = new BABYLON.PhysicsImpostor(
             wrapper,
@@ -346,13 +413,13 @@ let isThermometerAttached = false; // Status termometer
             { mass: itemPhysicsMass, restitution: 0.4 },
             scene
         );
-        
+         
         // 3. Drag Behavior
         const dragBehavior = new BABYLON.SixDofDragBehavior();
         dragBehavior.dragDeltaRatio = 1;
         dragBehavior.zDragFactor = 1;
         dragBehavior.detachCameraControls = true;
-        
+         
         wrapper.addBehavior(dragBehavior);
         wrapper.dragBehavior = dragBehavior; // Simpan referensi
 
@@ -374,30 +441,30 @@ let isThermometerAttached = false; // Status termometer
                     }
                 }
             });
-        } 
+        } 
         // Jika allowBillboard = false, wrapper.billboardMode akan SELALU NONE.
 
         // 5. Load Model
         BABYLON.SceneLoader.ImportMesh("", "assets/", glbFile, scene, function (meshes) {
             const rootMesh = meshes[0];
             rootMesh.setParent(wrapper);
-            rootMesh.position = new BABYLON.Vector3(0, 0, 0); 
+            rootMesh.position = new BABYLON.Vector3(0, 0, 0); 
             rootMesh.scaling = scaling;
         });
-        
-        return wrapper; 
+         
+        return wrapper; 
     }
-    
+     
     // --- Gunakan helper untuk memuat dan menangkap semua item ---
-    stethoscopeMesh = createGrabbableItem("stethoscope", "STETOSKOP.glb", 
-        ITEM_POSITIONS.stethoscope.pos, 
-        new BABYLON.Vector3(0.04, 0.04, 0.04),
+    stethoscopeMesh = createGrabbableItem("stethoscope", "STETOSKOP.glb", 
+        ITEM_POSITIONS.stethoscope.pos, 
+        new BABYLON.Vector3(0.0009, 0.0009, 0.0009),
         ITEM_POSITIONS.stethoscope.rot,
         false
     );
-    
-    thermometerMesh = createGrabbableItem("thermometer", "thermometer.glb", 
-        ITEM_POSITIONS.thermometer.pos, 
+     
+    thermometerMesh = createGrabbableItem("thermometer", "thermometer.glb", 
+        ITEM_POSITIONS.thermometer.pos, 
         new BABYLON.Vector3(-0.25, -0.25, -0.25),
         ITEM_POSITIONS.thermometer.rot,
         false
@@ -408,12 +475,18 @@ let isThermometerAttached = false; // Status termometer
         });
     }
 
-    tensimeterMesh = createGrabbableItem("tensimeter", "tensimeter.glb", 
-        ITEM_POSITIONS.tensimeter.pos, 
+    tensimeterMesh = createGrabbableItem("tensimeter", "tensimeter.glb", 
+        ITEM_POSITIONS.tensimeter.pos, 
         new BABYLON.Vector3(0.3, 0.3, 0.3),
         ITEM_POSITIONS.tensimeter.rot,
         false
     );
+if (tensimeterMesh.dragBehavior) {
+        tensimeterMesh.dragBehavior.onDragStartObservable.add(() => {
+            console.log("Tensimeter didrag pertama kali...");
+            attachTensimeterToController();
+        });
+    }
 
     // Infus (Static, mass 0)
     BABYLON.SceneLoader.ImportMesh("", "assets/", "infus.glb", scene, function (meshes) {
@@ -429,15 +502,102 @@ let isThermometerAttached = false; // Status termometer
     });
 
     // =====================================
+    // Muat Chestpiece (Mesh Terpisah)
+    // =====================================
+    BABYLON.SceneLoader.ImportMesh("", "assets/", "chestpiece.glb", scene, function (meshes) {
+        chestpieceMesh = meshes[0];
+         
+        // Atur skala agar sesuai (mungkin perlu disesuaikan dengan model aslinya)
+        chestpieceMesh.scaling = new BABYLON.Vector3(0.04, 0.04, 0.04); 
+         
+        // Pastikan collision mati agar tidak mengganggu grab
+        chestpieceMesh.getChildMeshes().forEach(m => m.checkCollisions = false);
+         
+        // SEMBUNYIKAN DI AWAL (Hanya muncul saat dipegang)
+        findAllMeshesAndSetVisibility(chestpieceMesh, false);
+        
+        chestTarget.actionManager.registerAction(
+    new BABYLON.ExecuteCodeAction(
+        { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: chestpieceMesh }, 
+        function () {
+            // Jalankan hanya jika stetoskop sedang dipegang (attached) DAN belum diproses
+            if (isStethoscopeAttached && !isProcessing && !isStethoscopeSnapped) {
+                isProcessing = true;
+                isStethoscopeSnapped = true; // Tandai sedang menempel
+
+                console.log("SNAP! Stetoskop menempel di dada.");
+
+                // --- 1. LOGIKA SNAP (MENEMPEL) ---
+                // Lepas dari tangan/kamera
+                chestpieceMesh.setParent(null);
+                
+                // Tempelkan (Parent) ke target dada agar ikut bergerak jika pasien bergerak
+                chestpieceMesh.setParent(chestTarget);
+                
+                // Reset posisi & rotasi agar pas di titik target
+                chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0); 
+                // Sesuaikan rotasi ini agar chestpiece menghadap ke atas/luar (mungkin perlu disesuaikan nilainya)
+                chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI, 0, 0); 
+
+                // --- 2. AUDIO & VISUAL ---
+                setTimeout(() => {
+                    const BPM = (80).toFixed(0); // Contoh BPM normal
+                    StethoText.text = `${BPM} BPM`;
+                    StethoText.isVisible = true;
+                    heartbeatSound.play(); // Mainkan suara
+
+                    // Tampilkan Gambar Billboard
+                    createPngBillboard(
+                        "image2", 
+                        "DetakJantung.png", 
+                        new BABYLON.Vector3(-17.5, 2.5, 28.15), 
+                        1, 
+                        scene
+                    );
+
+                    // --- 3. AUTO-RELEASE SETELAH SELESAI (Opsional tapi disarankan) ---
+                    // Setelah 3 detik, stetoskop kembali ke tangan user (agar tidak nyangkut selamanya)
+                    setTimeout(() => {
+                        StethoText.isVisible = false;
+                        heartbeatSound.stop();
+                        
+                        // Kembalikan ke Tangan / Kamera
+                        isStethoscopeSnapped = false;
+                        
+                        let parentTarget = null;
+                        if (rightVRController) {
+                            parentTarget = rightVRController.grip || rightVRController.pointer;
+                        } else {
+                            parentTarget = getActiveCamera();
+                        }
+
+                        if (parentTarget) {
+                            chestpieceMesh.setParent(parentTarget);
+                            // Kembalikan posisi 'enak' di tangan
+                            chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
+                            chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0);
+                        }
+
+                        isProcessing = false;
+                        console.log("Pemeriksaan Selesai. Kembali ke tangan.");
+                    }, 3000); // Durasi pemeriksaan 3 detik
+
+                }, 500); // Delay sedikit sebelum muncul angka
+            }
+        }
+    )
+    );
+    });
+    // =====================================
     // FUNGSI UTILITY BARU UNTUK VISIBILITAS
     // =====================================
     /**
-     * Mencari semua mesh yang terlihat di bawah rootMesh (rekursif) dan mengatur properti isVisible mereka.
-     */
+     * Mencari semua mesh yang terlihat di bawah rootMesh (rekursif) dan mengatur properti isVisible mereka.
+     */
     function findAllMeshesAndSetVisibility(rootMesh, isVisible) {
         // Mendapatkan SEMUA mesh anak (rekursif)
-        const allChildren = rootMesh.getChildMeshes(true); 
-        
+        const allChildren = rootMesh.getChildMeshes(true); 
+         
         // Iterasi melalui semua anak dan setel visibilitas
         allChildren.forEach(child => {
             if (child instanceof BABYLON.Mesh || child instanceof BABYLON.TransformNode) {
@@ -454,11 +614,11 @@ let isThermometerAttached = false; // Status termometer
         return xr && xr.baseExperience.state === BABYLON.WebXRState.IN_XR ? xr.baseExperience.camera : camera;
     }
     function updateTubeLogic() {
-    if (!isStethoscopeAttached) return; 
+    if (!isStethoscopeAttached && !isStethoscopeSnapped) return;
 
     const activeCam = getActiveCamera();
     // Titik Awal: Sedikit di bawah kamera (leher)
-    const startPoint = activeCam.position.add(new BABYLON.Vector3(0, -0.3, 0)); 
+    const startPoint = activeCam.position.add(new BABYLON.Vector3(0, -0.3, 0)); 
 
     // Titik Akhir: Ke Chestpiece yang ada di tangan
     let endPoint;
@@ -471,7 +631,7 @@ let isThermometerAttached = false; // Status termometer
 
     // Buat jalur (path) sederhana lurus atau sedikit melengkung (Bezier bisa ditambahkan jika ingin lebih advance)
     const path = [startPoint, endPoint];
-    
+     
     if (!stethoscopeTube) {
         stethoscopeTube = BABYLON.MeshBuilder.CreateTube("stethoTube", {
             path: path, radius: 0.015, updatable: true
@@ -481,7 +641,7 @@ let isThermometerAttached = false; // Status termometer
         stethoscopeTube.material = rubberMat;
     } else {
         BABYLON.MeshBuilder.CreateTube("stethoTube", {
-            path: path, radius: 0.015, instance: stethoscopeTube 
+            path: path, radius: 0.015, instance: stethoscopeTube 
         });
     }
 }
@@ -507,7 +667,7 @@ function stopTubeSimulation() {
 
     let parentTarget = null;
     if (rightVRController) {
-        parentTarget = rightVRController.grip || rightVRController.pointer; 
+        parentTarget = rightVRController.grip || rightVRController.pointer; 
     } else {
         parentTarget = getActiveCamera();
     }
@@ -516,13 +676,13 @@ function stopTubeSimulation() {
     console.log("GRAB DETECTED: Swap ke Chestpiece.");
 
     // 1. Matikan Model Utuh
-    stethoscopeMesh.setEnabled(false); 
-    
+    stethoscopeMesh.setEnabled(false); 
+     
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
         stethoscopeMesh.physicsImpostor = null;
     }
-    
+     
     // Detach behavior saat ini
     if (stethoscopeMesh.dragBehavior) {
         stethoscopeMesh.dragBehavior.detach();
@@ -533,15 +693,15 @@ function stopTubeSimulation() {
         chestpieceMesh.setEnabled(true);
         findAllMeshesAndSetVisibility(chestpieceMesh, true);
         chestpieceMesh.setParent(parentTarget);
-        chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
+        chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
         chestpieceMesh.rotationQuaternion = null;
-        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0); 
+        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0); 
     }
 
     isStethoscopeAttached = true;
     startTubeSimulation();
 }
-    
+     
 
     function detachStethoscopeFromCamera() { // Bisa direname jadi detachStethoscope
     if (!stethoscopeMesh || !isStethoscopeAttached) return;
@@ -551,7 +711,7 @@ function stopTubeSimulation() {
 
     findAllMeshesAndSetVisibility(stethoscopeMesh, true);
     stethoscopeMesh.setParent(null);
-    
+     
     // Reset ke meja
     resetItem(stethoscopeMesh, ITEM_POSITIONS.stethoscope.pos, ITEM_POSITIONS.stethoscope.rot);
 
@@ -572,13 +732,13 @@ function stopTubeSimulation() {
         stethoscopeMesh.removeBehavior(stethoscopeMesh.dragBehavior);
         stethoscopeMesh.dragBehavior = null; // Bersihkan referensi
     }
-    
+     
     // Matikan Pickable (Ghost Mode) sementara
     setHierarchicalPickable(stethoscopeMesh, false);
 
     // 3. SWAP VISUAL (Sembunyikan Chestpiece -> Munculkan Utuh)
     if (chestpieceMesh) {
-        chestpieceMesh.setEnabled(false); 
+        chestpieceMesh.setEnabled(false); 
         chestpieceMesh.setParent(null);
 
         // Ambil posisi terakhir tangan
@@ -586,16 +746,16 @@ function stopTubeSimulation() {
 
         // Pindahkan model utuh ke sana
         stethoscopeMesh.position.copyFrom(dropPosition);
-        
+         
         // Reset Rotasi ke Tegak Lurus (0,0,0)
         stethoscopeMesh.rotationQuaternion = null;
-        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
+        stethoscopeMesh.rotation = new BABYLON.Vector3(0, 0, 0); 
     }
 
     // 4. SETEL ULANG MODEL UTUH
-    stethoscopeMesh.setEnabled(true); 
+    stethoscopeMesh.setEnabled(true); 
     findAllMeshesAndSetVisibility(stethoscopeMesh, true);
-    
+     
     // Putus hubungan parent & matikan billboard
     stethoscopeMesh.setParent(null);
     stethoscopeMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
@@ -605,15 +765,15 @@ function stopTubeSimulation() {
     if (stethoscopeMesh.physicsImpostor) {
         stethoscopeMesh.physicsImpostor.dispose();
     }
-    
+     
     // Massa Berat & Gesekan Tinggi agar tidak mental
     stethoscopeMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
         stethoscopeMesh,
         BABYLON.PhysicsImpostor.BoxImpostor,
-        { mass: 5.0, restitution: 0.0, friction: 100.0 }, 
+        { mass: 5.0, restitution: 0.0, friction: 100.0 }, 
         scene
     );
-    
+     
     // Hentikan sisa kecepatan
     stethoscopeMesh.physicsImpostor.setLinearVelocity(new BABYLON.Vector3(0, -0.5, 0));
     stethoscopeMesh.physicsImpostor.setAngularVelocity(new BABYLON.Vector3(0, 0, 0));
@@ -624,7 +784,7 @@ function stopTubeSimulation() {
     setTimeout(() => {
         if (stethoscopeMesh) {
             console.log("COOLDOWN SELESAI: Memasang kembali logika Grab.");
-            
+             
             // a. Hidupkan sensor sentuh
             setHierarchicalPickable(stethoscopeMesh, true);
 
@@ -633,13 +793,13 @@ function stopTubeSimulation() {
             newDragBehavior.dragDeltaRatio = 1;
             newDragBehavior.zDragFactor = 1;
             newDragBehavior.detachCameraControls = true;
-            
+             
             // --- [BAGIAN PENTING YANG HILANG TADI] ---
             // Kita harus memasang lagi Listener: "Kalau di-grab, jalankan fungsi attach"
             newDragBehavior.onDragStartObservable.add(() => {
                 console.log("Stetoskop di-grab lagi!");
                 // Panggil fungsi attach yang sudah kita buat
-                attachStethoscopeToController(); 
+                attachStethoscopeToController(); 
             });
             // -----------------------------------------
 
@@ -674,14 +834,13 @@ function stopTubeSimulation() {
 
     // 2. Tempel ke Tangan
     thermometerMesh.setParent(parentTarget);
-    
+     
     // 3. ATUR POSISI SNAP (POSISI SCAN SUHU)
     // Angka ini menentukan posisi 'enak' di tangan. Silakan tweak jika kurang pas.
     thermometerMesh.position = new BABYLON.Vector3(0, -0.05, 0.1); // Sedikit ke depan & bawah
-    
-    // Atur Rotasi agar moncong termometer menghadap depan
+     
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(0, -89, 0);
+    thermometerMesh.rotation = new BABYLON.Vector3(-90, -90, 0);
 
     // 4. Pastikan Terlihat & Matikan Billboard
     findAllMeshesAndSetVisibility(thermometerMesh, true);
@@ -709,10 +868,10 @@ function releaseThermometer() {
     const dropPosition = thermometerMesh.absolutePosition.clone();
     thermometerMesh.setParent(null);
     thermometerMesh.position.copyFrom(dropPosition);
-    
+     
     // Reset rotasi agar jatuh wajar (tegak lurus gravitasi)
     thermometerMesh.rotationQuaternion = null;
-    thermometerMesh.rotation = new BABYLON.Vector3(0, 90, 0);
+    thermometerMesh.rotation = new BABYLON.Vector3(0, 0, 0);
 
     // 4. Aktifkan Fisika (Jatuh)
     thermometerMesh.checkCollisions = true;
@@ -722,7 +881,7 @@ function releaseThermometer() {
     thermometerMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
         thermometerMesh,
         BABYLON.PhysicsImpostor.BoxImpostor,
-        { mass: 1.0, restitution: 0.2, friction: 0.6 }, 
+        { mass: 1.0, restitution: 0.2, friction: 0.6 }, 
         scene
     );
 
@@ -732,9 +891,112 @@ function releaseThermometer() {
     setTimeout(() => {
         if (thermometerMesh) {
             console.log("Thermometer siap diambil lagi.");
-            
+             
             // a. Hidupkan sensor sentuh
             setHierarchicalPickable(thermometerMesh, true);
+
+            // b. Buat Behavior Baru
+            const newDragBehavior = new BABYLON.SixDofDragBehavior();
+            newDragBehavior.dragDeltaRatio = 1;
+            newDragBehavior.zDragFactor = 1;
+            newDragBehavior.detachCameraControls = true;
+             
+            // c. Pasang Listener GRAB
+            newDragBehavior.onDragStartObservable.add(() => {
+                attachThermometerToController(); // Panggil fungsi snap saat di-grab
+            });
+
+            thermometerMesh.addBehavior(newDragBehavior);
+            thermometerMesh.dragBehavior = newDragBehavior;
+        }
+    }, 1500);
+}
+function attachTensimeterToController() {
+    if (!tensimeterMesh || isTensimeterAttached || isProcessing) return;
+
+    // Cari Controller Kanan atau Camera
+    let parentTarget = null;
+    if (rightVRController) {
+        parentTarget = rightVRController.grip || rightVRController.pointer;
+    } else {
+        parentTarget = getActiveCamera(); 
+    }
+    if (!parentTarget) return;
+
+    console.log("GRAB TENSIMETER: Snap ke tangan.");
+
+    // 1. Matikan Fisika & Behavior Lama
+    if (tensimeterMesh.physicsImpostor) {
+        tensimeterMesh.physicsImpostor.dispose();
+        tensimeterMesh.physicsImpostor = null;
+    }
+    if (tensimeterMesh.dragBehavior) {
+        tensimeterMesh.dragBehavior.detach();
+    }
+
+    // 2. Tempel ke Tangan
+    tensimeterMesh.setParent(parentTarget);
+    
+    // 3. ATUR POSISI SNAP (Sesuaikan angka ini agar pas di tangan)
+    tensimeterMesh.position = new BABYLON.Vector3(0, -0.05, 0.15); 
+    
+    // Atur Rotasi agar menghadap ke arah yang benar
+    tensimeterMesh.rotationQuaternion = null;
+    // Ubah nilai ini jika arah tensimeter terbalik di tangan
+    tensimeterMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0); 
+
+    // 4. Pastikan Terlihat & Matikan Billboard
+    findAllMeshesAndSetVisibility(tensimeterMesh, true);
+    tensimeterMesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
+
+    isTensimeterAttached = true;
+}
+function releaseTensimeter() {
+    if (!tensimeterMesh || !isTensimeterAttached) return;
+
+    console.log("RELEASE TENSIMETER: Jatuh fisika.");
+
+    // 1. Hapus Behavior Lama
+    if (tensimeterMesh.dragBehavior) {
+        tensimeterMesh.dragBehavior.detach();
+        tensimeterMesh.removeBehavior(tensimeterMesh.dragBehavior);
+        tensimeterMesh.dragBehavior = null;
+    }
+
+    // 2. Matikan Raycast Sementara
+    setHierarchicalPickable(tensimeterMesh, false);
+
+    // 3. Lepas dari Tangan (Unparent)
+    const dropPosition = tensimeterMesh.absolutePosition.clone();
+    tensimeterMesh.setParent(null);
+    tensimeterMesh.position.copyFrom(dropPosition);
+    
+    // Reset rotasi agar jatuh wajar
+    tensimeterMesh.rotationQuaternion = null;
+    tensimeterMesh.rotation = new BABYLON.Vector3(0, 0, 0);
+
+    // 4. Aktifkan Fisika (Jatuh)
+    tensimeterMesh.checkCollisions = true;
+    if (tensimeterMesh.physicsImpostor) {
+        tensimeterMesh.physicsImpostor.dispose();
+    }
+    // Massa tensimeter mungkin lebih berat dari termometer
+    tensimeterMesh.physicsImpostor = new BABYLON.PhysicsImpostor(
+        tensimeterMesh,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 2.0, restitution: 0.1, friction: 0.6 }, 
+        scene
+    );
+
+    isTensimeterAttached = false;
+
+    // 5. COOLDOWN: Pasang kembali Grab setelah 1.5 detik
+    setTimeout(() => {
+        if (tensimeterMesh) {
+            console.log("Tensimeter siap diambil lagi.");
+            
+            // a. Hidupkan sensor sentuh
+            setHierarchicalPickable(tensimeterMesh, true);
 
             // b. Buat Behavior Baru
             const newDragBehavior = new BABYLON.SixDofDragBehavior();
@@ -744,11 +1006,11 @@ function releaseThermometer() {
             
             // c. Pasang Listener GRAB
             newDragBehavior.onDragStartObservable.add(() => {
-                attachThermometerToController(); // Panggil fungsi snap saat di-grab
+                attachTensimeterToController(); // Panggil fungsi snap saat di-grab
             });
 
-            thermometerMesh.addBehavior(newDragBehavior);
-            thermometerMesh.dragBehavior = newDragBehavior;
+            tensimeterMesh.addBehavior(newDragBehavior);
+            tensimeterMesh.dragBehavior = newDragBehavior;
         }
     }, 1500);
 }
@@ -760,28 +1022,28 @@ function releaseThermometer() {
         mesh.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE;
         // Pastikan semua mesh terlihat saat di-reset
         findAllMeshesAndSetVisibility(mesh, true);
-        
-        // 1. Hapus impostor sementara 
+         
+        // 1. Hapus impostor sementara 
         if (mesh.physicsImpostor) {
             mesh.physicsImpostor.dispose();
-            mesh.physicsImpostor = null; 
+            mesh.physicsImpostor = null; 
         }
-        
-        // 2. Hapus parenting 
-        mesh.setParent(null); 
-        
+         
+        // 2. Hapus parenting 
+        mesh.setParent(null); 
+         
         // 3. Atur ulang posisi dan rotasi mesh secara manual
         mesh.position.copyFrom(initialPosition);
         // Penting: Gunakan quaternion jika model dirotasi secara kompleks. Untuk saat ini, kita gunakan rotation.
-        mesh.rotationQuaternion = null; 
-        mesh.rotation.copyFrom(initialRotation); 
-        
+        mesh.rotationQuaternion = null; 
+        mesh.rotation.copyFrom(initialRotation); 
+         
         mesh.checkCollisions = true;
-        
+         
         // 4. Buat ulang impostor dengan properti yang sama
-        const mass = 0.01; 
-        const restitution = 0.4; 
-        
+        const mass = 0.01; 
+        const restitution = 0.4; 
+         
         mesh.physicsImpostor = new BABYLON.PhysicsImpostor(
             mesh,
             BABYLON.PhysicsImpostor.BoxImpostor,
@@ -791,30 +1053,37 @@ function releaseThermometer() {
         // --- PERBAIKAN: AKTIFKAN KEMBALI DRAG BEHAVIOR ---
         // Khusus untuk stetoskop, pasang lagi behavior-nya
         if (mesh.name === "stethoscopeWrapper" || mesh === stethoscopeMesh) {
-            if (stethoscopeDragBehavior) {
-                stethoscopeDragBehavior.attach(mesh);
-            }
+            // Karena dragBehavior di-detach/dispose saat attach/release, kita perlu memastikan 
+            // kita membuat ulang logika drag behavior yang benar, bukan hanya melampirkan referensi lama.
+            // Logika re-arming dilakukan di dalam releaseStethoscopeInPlace() / releaseThermometer()
+            // Bagian ini hanya untuk reset murni, kita biarkan logic re-arm bekerja 1.5s setelah jatuh.
         }
         console.log(`[RESET] Item ${mesh.name} berhasil diatur ulang.`);
     }
-    
+     
     function resetAllItems() {
         // 1. Detach stetoskop dulu jika terpasang
         if (isStethoscopeAttached) {
-            detachStethoscopeFromCamera(); // Ini akan memanggil resetItem
-        } 
-        
-        // 2. Reset semua item lainnya 
+            // Gunakan releaseInPlace agar fisikanya bekerja (jatuh) dan re-arming
+            releaseStethoscopeInPlace(); 
+        } 
+        if (isThermometerAttached) {
+             releaseThermometer();
+        }
+        if (isTensimeterAttached) {
+             releaseTensimeter();
+        }
+        // 2. Reset semua item lainnya (HANYA jika tidak sedang di-detach In Place)
+        // Kita panggil resetItem secara eksplisit untuk item yang tidak dipegang saat reset
         resetItem(thermometerMesh, ITEM_POSITIONS.thermometer.pos, ITEM_POSITIONS.thermometer.rot);
-        // Panggil reset untuk stethoscope juga, untuk jaga-jaga jika sudah detached tapi belum reset sempurna
-        resetItem(stethoscopeMesh, ITEM_POSITIONS.stethoscope.pos, ITEM_POSITIONS.stethoscope.rot); 
+        resetItem(stethoscopeMesh, ITEM_POSITIONS.stethoscope.pos, ITEM_POSITIONS.stethoscope.rot); 
         resetItem(tensimeterMesh, ITEM_POSITIONS.tensimeter.pos, ITEM_POSITIONS.tensimeter.rot);
-        
+         
         // 3. Sembunyikan semua teks hasil pemeriksaan
         tempText.isVisible = false;
         StethoText.isVisible = false;
         tensiText.isVisible = false;
-        
+         
         // 4. Hapus billboard/gambar hasil pemeriksaan
         const image1 = scene.getMeshByName("image1");
         const image2 = scene.getMeshByName("image2");
@@ -825,27 +1094,27 @@ function releaseThermometer() {
 
         console.log("Semua item telah di-reset ke posisi awal.");
     }
-    
+     
     // =====================================
     // Buat Tombol Reset 3D
     // =====================================
     // 1. Buat Material Merah Solid
     const solidRedMat = new BABYLON.StandardMaterial("solidRedMat", scene);
-    solidRedMat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2); 
-    solidRedMat.emissiveColor = new BABYLON.Color3(0.4, 0.1, 0.1); 
-    solidRedMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); 
-    solidRedMat.backFaceCulling = false; 
+    solidRedMat.diffuseColor = new BABYLON.Color3(0.8, 0.2, 0.2); 
+    solidRedMat.emissiveColor = new BABYLON.Color3(0.4, 0.1, 0.1); 
+    solidRedMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); 
+    solidRedMat.backFaceCulling = false; 
 
     // 2. Buat Mesh Tombol Utama (Kotak Merah Solid)
     const resetButton = BABYLON.MeshBuilder.CreateBox("resetButton", { height: 0.3, width: 0.3, depth: 0.1 }, scene);
-    
+     
     // Atur Posisi & Rotasi Tombol
-    resetButton.position = new BABYLON.Vector3(-15.5, 1.8, 28.2); 
-    
+    resetButton.position = new BABYLON.Vector3(-15.5, 1.8, 28.2); 
+     
     // Terapkan Material Merah Solid
-    resetButton.material = solidRedMat; 
-    resetButton.checkCollisions = false; 
-    
+    resetButton.material = solidRedMat; 
+    resetButton.checkCollisions = false; 
+     
     // Jadikan tombol statis (mass 0)
     resetButton.physicsImpostor = new BABYLON.PhysicsImpostor(
         resetButton,
@@ -853,27 +1122,27 @@ function releaseThermometer() {
         { mass: 0, restitution: 0.0 },
         scene
     );
-    
+     
     // 3. Buat Mesh Plane Terpisah untuk Menampilkan Teks
     const textPlane = BABYLON.MeshBuilder.CreatePlane("resetTextPlane", { width: 0.3, height: 0.3 }, scene);
-    
-    textPlane.position = new BABYLON.Vector3(0, 0.3, -0.06); 
-    textPlane.parent = resetButton; 
-    textPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
+     
+    textPlane.position = new BABYLON.Vector3(0, 0.3, -0.06); 
+    textPlane.parent = resetButton; 
+    textPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
 
     // 4. Buat ADT dan Terapkan ke Plane Teks
     const adtReset = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
-        textPlane, 
-        800, 
-        300, 
-        false 
-    ); 
-    
+        textPlane, 
+        800, 
+        300, 
+        false 
+    ); 
+     
     // Tambahkan Label Teks
     const label = new BABYLON.GUI.TextBlock();
     label.text = "RESET ITEM";
-    label.color = "white"; 
-    label.fontSize = 100; 
+    label.color = "white"; 
+    label.fontSize = 100; 
     adtReset.addControl(label);
 
     // 5. Tambahkan Logika Klik ke Tombol Utama (Kotak Merah)
@@ -884,11 +1153,70 @@ function releaseThermometer() {
             resetAllItems(); // Panggil fungsi reset
         })
     );
-    
+     
+    // =====================================
+    // Buat Tombol KEMBALI KE LOBBY (index.html) 3D
+    // =====================================
+    // 1. Buat Material Biru Solid (Untuk tombol Lobby)
+    const solidBlueMat = new BABYLON.StandardMaterial("solidBlueMat", scene);
+    solidBlueMat.diffuseColor = new BABYLON.Color3(0.2, 0.3, 0.8); 
+    solidBlueMat.emissiveColor = new BABYLON.Color3(0.1, 0.1, 0.4); 
+    solidBlueMat.specularColor = new BABYLON.Color3(0.1, 0.1, 0.1); 
+    solidBlueMat.backFaceCulling = false; 
+
+    // 2. Buat Mesh Tombol Utama (Kotak Biru Solid)
+    const lobbyButton = BABYLON.MeshBuilder.CreateBox("lobbyButton", { height: 0.3, width: 0.3, depth: 0.1 }, scene);
+     
+    // Atur Posisi & Rotasi Tombol (Diletakkan di samping tombol Reset)
+    lobbyButton.position = new BABYLON.Vector3(-13.5, 1.8, 28.2); // Geser sedikit ke kanan dari tombol reset
+     
+    // Terapkan Material Biru Solid
+    lobbyButton.material = solidBlueMat; 
+    lobbyButton.checkCollisions = false; 
+     
+    // Jadikan tombol statis (mass 0)
+    lobbyButton.physicsImpostor = new BABYLON.PhysicsImpostor(
+        lobbyButton,
+        BABYLON.PhysicsImpostor.BoxImpostor,
+        { mass: 0, restitution: 0.0 },
+        scene
+    );
+     
+    // 3. Buat Mesh Plane Terpisah untuk Menampilkan Teks
+    const lobbyTextPlane = BABYLON.MeshBuilder.CreatePlane("lobbyTextPlane", { width: 0.3, height: 0.3 }, scene);
+     
+    lobbyTextPlane.position = new BABYLON.Vector3(0, 0.3, -0.06); 
+    lobbyTextPlane.parent = lobbyButton; 
+    lobbyTextPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_NONE; 
+
+    // 4. Buat ADT dan Terapkan ke Plane Teks
+    const adtLobby = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
+        lobbyTextPlane, 
+        800, 
+        300, 
+        false 
+    ); 
+     
+    // Tambahkan Label Teks
+    const lobbyLabel = new BABYLON.GUI.TextBlock();
+    lobbyLabel.text = "KE LOBBY";
+    lobbyLabel.color = "white"; 
+    lobbyLabel.fontSize = 100; 
+    adtLobby.addControl(lobbyLabel);
+
+    // 5. Tambahkan Logika Klik ke Tombol Utama (Kotak Biru)
+    lobbyButton.actionManager = new BABYLON.ActionManager(scene);
+    lobbyButton.actionManager.registerAction(
+        new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickTrigger, function () {
+            console.log("Tombol Kembali ke Lobby Ditekan!");
+            // Fungsi untuk kembali ke index.html
+            window.location.href = "index.html"; 
+        })
+    );
     // =====================================
     // CUSTOM GRAB LOGIC UNTUK STETOSKOP
     // =====================================
-    
+     
     // Simpan drag behavior asli stetoskop
     let stethoscopeDragBehavior = null;
     stethoscopeMesh.behaviors.forEach(behavior => {
@@ -902,29 +1230,22 @@ function releaseThermometer() {
         console.log("Stetoskop di-grab...");
         setTimeout(() => {
             // GANTI PEMANGGILAN KE FUNGSI BARU
-            attachStethoscopeToController(); 
+            attachStethoscopeToController(); 
         }, 10);
     });
 }
 
     // // Backup: Action Manager untuk mouse click
-    // stethoscopeMesh.actionManager = new BABYLON.ActionManager(scene);
-    // stethoscopeMesh.actionManager.registerAction(
-    //     new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickTrigger, function () {
-    //         if (isProcessing || isStethoscopeAttached) return;
-    //         console.log("Stetoskop di-klik (mouse), langsung attach ke kamera");
-    //         attachStethoscopeToCamera();
-    //     })
-    // );
+    // // (Kode ini dihapus untuk menghindari duplikasi logic grab)
 
     // =====================================
-    // Logic Interaksi 
+    // Logic Interaksi (Termometer dan Tensimeter)
     // =====================================
-    
+     
     // 1. Termometer ke Kepala (Beep Suhu)
     headTarget.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(
-            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: thermometerMesh }, 
+            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: thermometerMesh }, 
             function () {
                 if (!isProcessing) {
                     isProcessing = true;
@@ -936,9 +1257,9 @@ function releaseThermometer() {
                         tempText.isVisible = true;
                         // Tambahkan gambar 1
                         createPngBillboard(
-                            "image1", 
-                            "SuhuTubuh.png", 
-                            new BABYLON.Vector3(-17.5, 2.5, 28.15), // Posisi di samping meja
+                            "image1", 
+                            "SuhuTubuh.png", 
+                            new BABYLON.Vector3(-16.5, 2.5, 28.15), // Posisi di samping meja
                             1, // Ukuran lebar bidang
                             scene
                         );
@@ -946,52 +1267,19 @@ function releaseThermometer() {
                             tempText.isVisible = false;
                             isProcessing = false;
                         }, 2000);
-                        
+                         
                     }, 1000);
                 }
             }
         )
     );
-    
-    // 2. Stetoskop ke Dada (Heartbeat Sound) - MODIFIKASI
-    chestTarget.actionManager.registerAction(
-        new BABYLON.ExecuteCodeAction(
-            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: stethoscopeMesh }, 
-            function () {
-                if (!isProcessing && !isHeartbeatPlaying && isStethoscopeAttached) {
-                    isProcessing = true;
-                    
-                    // Detach stetoskop dari kamera terlebih dahulu
-                    detachStethoscopeFromCamera();
-                    
-                    // Jeda 1 detik sebelum suara dimulai
-                    setTimeout(() => {
-                        const BPM = (50).toFixed(1);
-                        StethoText.text = `${BPM} BPM`;
-                        StethoText.isVisible = true;
-                        // Tambahkan gambar 2
-                        createPngBillboard(
-                            "image2", 
-                            "DetakJantung.png", 
-                            new BABYLON.Vector3(-17, 2, 28.15), 
-                            1, 
-                            scene
-                        );
-
-                        setTimeout(() => {
-                            StethoText.isVisible = false;
-                            isProcessing = false;
-                        }, 2000);
-                    }, 1000);
-                }
-            }
-        )
-    );
+     
+    // 2. Stetoskop ke Dada (Heartbeat Sound) - LOGIKA SUDAH DIPINDAHKAN KE CALLBACK chestpiece.glb (baris 340)
 
     // 3. Tensimeter ke Lengan Kanan (Tekanan Darah)
     armTarget.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(
-            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: tensimeterMesh }, 
+            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: tensimeterMesh }, 
             function () {
                 if (!isProcessing) {
                     isProcessing = true;
@@ -1002,10 +1290,10 @@ function releaseThermometer() {
                         tensiText.isVisible = true;
                         // Tambahkan gambar 3
                         createPngBillboard(
-                            "image3", 
-                            "TekananDarah.png", 
-                            new BABYLON.Vector3(-16.5, 2.5, 28.15), 
-                            1, 
+                            "image3", 
+                            "TekananDarah.png", 
+                            new BABYLON.Vector3(-17, 2, 28.15), 
+                            1, 
                             scene
                         );
 
@@ -1019,313 +1307,197 @@ function releaseThermometer() {
         )
     );
     // =====================================
-  // UI & TYPEWRITER (TETAP SAMA)
-  // =====================================
-  let currentState = 1;
-  let dialogTitle;
-  let dialogBody;
-  let lanjutButton;
-  let finalButtonsContainer;
-  let charIndex = 0;
-  let isTyping = false;
-  let currentTextTarget = "";
-  let typeObserver = null;
-  const TYPING_SPEED = 3;
+  // UI & TYPEWRITER (TETAP SAMA)
+  // =====================================
+  let currentState = 1;
+  let dialogTitle;
+  let dialogBody;
+  let lanjutButton;
+  let finalButtonsContainer;
+  let charIndex = 0;
+  let isTyping = false;
+  let currentTextTarget = "";
+  let typeObserver = null;
+  const TYPING_SPEED = 3;
 
-  // TEKS
-  const TAHAP_1_JUDUL = "Halo, Calon Dokter!";
-  const TAHAP_1_BODY = "Selamat Datang di Simulasi Pemeriksaan Pasien";
-  const TAHAP_2_BODY = "Pasien baru saja datang ke ruang pemeriksaan dengan keluhan pusing dan lemas setelah berdiri lama. Lakukan pemeriksaan dasar untuk mengetahui penyebab keluhan pasien.";
-  const TAHAP_3_JUDUL = "SIMULASI";
-  const TAHAP_3_BODY = "AYO SIMULASI!!!";
-  const TAHAP_4_BODY = "Langkah 1: Periksa detak jantung dan paru pasien menggunakan stetoskop";
-  const TAHAP_5_BODY = "Langkah 2: Lanjutkan pemeriksaan tekanan darah menggunakan tensimeter digital.";
-  const TAHAP_6_BODY = "Langkah 3: Pastikan pasien tidak mengalami infeksi dengan memeriksa suhu tubuh menggunakan termometer digital.";
-  const TAHAP_7_BODY = "Baik, setelah melakukan pemeriksaan terhadap pasien, dapat disimpulkan bahwa diagnosis awal dari pasien adalah pasien kemungkinan mengalami hipotensi ringan akibat dari kelelahan dan kurangnya asupan gizi. Maka tindakan yang dapat dilakukan adalah memberikan cairan infus elektrolit guna membantu menstabilkan tekanan darah pasien.";
-  const TAHAP_8_BODY = "Simulasi telah selesai! Selamat, telah berhasil melakukan pemeriksaan terhadap pasien dengan menggunakan alat medis dasar.";
+  // TEKS
+  const TAHAP_1_JUDUL = "Halo, Calon Dokter!";
+  const TAHAP_1_BODY = "Selamat Datang di Simulasi Pemeriksaan Pasien";
+  const TAHAP_2_BODY = "Pasien baru saja datang ke ruang pemeriksaan dengan keluhan pusing dan lemas setelah berdiri lama. Lakukan pemeriksaan dasar untuk mengetahui penyebab keluhan pasien.";
+  const TAHAP_3_JUDUL = "SIMULASI";
+  const TAHAP_3_BODY = "AYO SIMULASI!!!";
+  const TAHAP_4_BODY = "Langkah 1: Periksa detak jantung dan paru pasien menggunakan stetoskop";
+  const TAHAP_5_BODY = "Langkah 2: Lanjutkan pemeriksaan tekanan darah menggunakan tensimeter digital.";
+  const TAHAP_6_BODY = "Langkah 3: Pastikan pasien tidak mengalami infeksi dengan memeriksa suhu tubuh menggunakan termometer digital.";
+  const TAHAP_7_BODY = "Baik, setelah melakukan pemeriksaan terhadap pasien, dapat disimpulkan bahwa diagnosis awal dari pasien adalah pasien kemungkinan mengalami hipotensi ringan akibat dari kelelahan dan kurangnya asupan gizi. Maka tindakan yang dapat dilakukan adalah memberikan cairan infus elektrolit guna membantu menstabilkan tekanan darah pasien.";
+  const TAHAP_8_BODY = "Simulasi telah selesai! Selamat, telah berhasil melakukan pemeriksaan terhadap pasien dengan menggunakan alat medis dasar.";
 
-  // TYPEWRITER
-  function typeWriterEffect(targetText, textBlock, scene, onComplete = () => {}) {
-    if (isTyping && typeObserver) {
-      scene.onBeforeRenderObservable.remove(typeObserver);
-    }
-    isTyping = true;
-    charIndex = 0;
-    currentTextTarget = targetText;
-    textBlock.text = "";
-    lanjutButton.isHitTestVisible = false;
+  // TYPEWRITER
+  function typeWriterEffect(targetText, textBlock, scene, onComplete = () => {}) {
+    if (isTyping && typeObserver) {
+      scene.onBeforeRenderObservable.remove(typeObserver);
+    }
+    isTyping = true;
+    charIndex = 0;
+    currentTextTarget = targetText;
+    textBlock.text = "";
+    lanjutButton.isHitTestVisible = false;
 
-    typeObserver = scene.onBeforeRenderObservable.add(() => {
-      if (charIndex <= currentTextTarget.length) {
-        if (scene.getEngine().frameId % TYPING_SPEED === 0) {
-          textBlock.text = currentTextTarget.substring(0, charIndex);
-          charIndex++;
-        }
-      } else {
-        isTyping = false;
-        scene.onBeforeRenderObservable.remove(typeObserver);
-        typeObserver = null;
-        onComplete();
-      }
-    });
-  }
+    typeObserver = scene.onBeforeRenderObservable.add(() => {
+      if (charIndex <= currentTextTarget.length) {
+        if (scene.getEngine().frameId % TYPING_SPEED === 0) {
+          textBlock.text = currentTextTarget.substring(0, charIndex);
+          charIndex++;
+        }
+      } else {
+        isTyping = false;
+        scene.onBeforeRenderObservable.remove(typeObserver);
+        typeObserver = null;
+        onComplete();
+      }
+    });
+  }
 
-  // UI PLANE
-  const uiPlane = BABYLON.MeshBuilder.CreatePlane("uiPlane", scene);
-  uiPlane.position = new BABYLON.Vector3(-19, 3, 28);
-  uiPlane.rotation.x = -0.2;
-  uiPlane.scaling.scaleInPlace(4);
+  // UI PLANE
+  const uiPlane = BABYLON.MeshBuilder.CreatePlane("uiPlane", scene);
+  uiPlane.position = new BABYLON.Vector3(-19, 3, 28);
+  uiPlane.rotation.x = -0.2;
+  uiPlane.scaling.scaleInPlace(4);
 
-  const adt = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
-    uiPlane,
-    3000,
-    3000
-  );
+  const adt = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(
+    uiPlane,
+    3000,
+    3000
+  );
 
-  // PANEL
-  const mainPanel = new BABYLON.GUI.Rectangle("mainPanel");
-  mainPanel.widthInPixels = 1920;
-  mainPanel.heightInPixels = 1080;
-  mainPanel.background = "rgba(20, 50, 130, 0.5)";
-  mainPanel.cornerRadius = 50;
-  mainPanel.thickness = 10;
-  mainPanel.color = "white";
-  adt.addControl(mainPanel);
+  // PANEL
+  const mainPanel = new BABYLON.GUI.Rectangle("mainPanel");
+  mainPanel.widthInPixels = 1920;
+  mainPanel.heightInPixels = 1080;
+  mainPanel.background = "rgba(20, 50, 130, 0.5)";
+  mainPanel.cornerRadius = 50;
+  mainPanel.thickness = 10;
+  mainPanel.color = "white";
+  adt.addControl(mainPanel);
 
-  const stackPanel = new BABYLON.GUI.StackPanel();
-  stackPanel.widthInPixels = 1800;
-  mainPanel.addControl(stackPanel);
+  const stackPanel = new BABYLON.GUI.StackPanel();
+  stackPanel.widthInPixels = 1800;
+  mainPanel.addControl(stackPanel);
 
-  dialogTitle = new BABYLON.GUI.TextBlock();
-  dialogTitle.color = "#FFD700";
-  dialogTitle.fontSizeInPixels = 90;
-  dialogTitle.fontStyle = "bold";
-  dialogTitle.heightInPixels = 150;
-  dialogTitle.textWrapping = true;
-  stackPanel.addControl(dialogTitle);
+  dialogTitle = new BABYLON.GUI.TextBlock();
+  dialogTitle.color = "#FFD700";
+  dialogTitle.fontSizeInPixels = 90;
+  dialogTitle.fontStyle = "bold";
+  dialogTitle.heightInPixels = 150;
+  dialogTitle.textWrapping = true;
+  stackPanel.addControl(dialogTitle);
 
-  dialogBody = new BABYLON.GUI.TextBlock();
-  dialogBody.color = "white";
-  dialogBody.fontSizeInPixels = 70;
-  dialogBody.heightInPixels = 500;
-  dialogBody.textWrapping = true;
-  stackPanel.addControl(dialogBody);
+  dialogBody = new BABYLON.GUI.TextBlock();
+  dialogBody.color = "white";
+  dialogBody.fontSizeInPixels = 70;
+  dialogBody.heightInPixels = 500;
+  dialogBody.textWrapping = true;
+  stackPanel.addControl(dialogBody);
 
-  lanjutButton = BABYLON.GUI.Button.CreateSimpleButton("lanjut", "Lanjut");
-  lanjutButton.widthInPixels = 500;
-  lanjutButton.heightInPixels = 150;
-  lanjutButton.background = "#5CB85C";
-  lanjutButton.color = "white";
-  lanjutButton.fontSizeInPixels = 50;
-  lanjutButton.onPointerClickObservable.add(handleLanjutClick);
-  stackPanel.addControl(lanjutButton);
+  lanjutButton = BABYLON.GUI.Button.CreateSimpleButton("lanjut", "Lanjut");
+  lanjutButton.widthInPixels = 500;
+  lanjutButton.heightInPixels = 150;
+  lanjutButton.background = "#5CB85C";
+  lanjutButton.color = "white";
+  lanjutButton.fontSizeInPixels = 50;
+  lanjutButton.onPointerClickObservable.add(handleLanjutClick);
+  stackPanel.addControl(lanjutButton);
 
-  finalButtonsContainer = new BABYLON.GUI.StackPanel();
-  finalButtonsContainer.isVertical = false;
-  finalButtonsContainer.spacing = 50;
-  finalButtonsContainer.isVisible = false;
-  stackPanel.addControl(finalButtonsContainer);
+  finalButtonsContainer = new BABYLON.GUI.StackPanel();
+  finalButtonsContainer.isVertical = false;
+  finalButtonsContainer.spacing = 50;
+  finalButtonsContainer.isVisible = false;
+  stackPanel.addControl(finalButtonsContainer);
 
-  // STATE MACHINE
-  function handleLanjutClick() {
-    if (isTyping) return;
-    
-    // **PERBAIKAN SUARA:** Buka kunci Audio Context pada klik pertama
-    if (currentState === 1) { 
-      if (engine.audioEngine && !engine.audioEngine.isUnlocked) {
-        engine.audioEngine.unlock();
-        console.log("Audio Context unlocked on first click.");
-      }
-    }
+  // STATE MACHINE
+  function handleLanjutClick() {
+    if (isTyping) return;
+    
+    // **PERBAIKAN SUARA:** Buka kunci Audio Context pada klik pertama
+    if (currentState === 1) { 
+      if (engine.audioEngine && !engine.audioEngine.isUnlocked) {
+        engine.audioEngine.unlock();
+        console.log("Audio Context unlocked on first click.");
+      }
+    }
 
-    currentState++;
+    currentState++;
 
-    if (currentState === 2) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_2_BODY, dialogBody, scene, () => {
-        lanjutButton.isHitTestVisible = true;
-      });
-    }
-  
-    if (currentState === 3) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_3_JUDUL, dialogTitle, scene, () => {
-        typeWriterEffect(TAHAP_3_BODY, dialogBody, scene, () => {
-          lanjutButton.isHitTestVisible = true;
-        });
-      });
-    }
-    if (currentState === 4) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_4_BODY, dialogBody, scene, () => {
-        lanjutButton.isHitTestVisible = true;
-      });
-    }
-    if (currentState === 5) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_5_BODY, dialogBody, scene, () => {
-        lanjutButton.isHitTestVisible = true;
-      });
-    }
-    if (currentState === 6) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_6_BODY, dialogBody, scene, () => {
-        lanjutButton.isHitTestVisible = true;
-      });
-    }
-    if (currentState === 7) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_7_BODY, dialogBody, scene, () => {
-        lanjutButton.isHitTestVisible = true;
-      });
-    }
-    if (currentState === 8) {
-      dialogTitle.text = "";
-      typeWriterEffect(TAHAP_8_BODY, dialogBody, scene, () => {
-         lanjutButton.textBlock.text = "Selesai";
-        lanjutButton.isHitTestVisible = true;
-        lanjutButton.onPointerClickObservable.clear(); // Hapus listener lama
-        lanjutButton.onPointerClickObservable.add(() => {
-          window.location.href = "index.html"; // Navigasi kembali
-        });
-      });
-    }
-  }
+    if (currentState === 2) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_2_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+  
+    if (currentState === 3) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_3_JUDUL, dialogTitle, scene, () => {
+        typeWriterEffect(TAHAP_3_BODY, dialogBody, scene, () => {
+          lanjutButton.isHitTestVisible = true;
+        });
+      });
+    }
+    if (currentState === 4) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_4_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 5) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_5_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 6) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_6_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 7) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_7_BODY, dialogBody, scene, () => {
+        lanjutButton.isHitTestVisible = true;
+      });
+    }
+    if (currentState === 8) {
+      dialogTitle.text = "";
+      typeWriterEffect(TAHAP_8_BODY, dialogBody, scene, () => {
+         lanjutButton.textBlock.text = "Selesai";
+        lanjutButton.isHitTestVisible = true;
+        lanjutButton.onPointerClickObservable.clear(); // Hapus listener lama
+        lanjutButton.onPointerClickObservable.add(() => {
+          window.location.href = "index.html"; // Navigasi kembali
+        });
+      });
+    }
+  }
 
-  const grabBehavior = new BABYLON.SixDofDragBehavior();
-  grabBehavior.allowMultiPointer = true;
-  uiPlane.addBehavior(grabBehavior);
+  const grabBehavior = new BABYLON.SixDofDragBehavior();
+  grabBehavior.allowMultiPointer = true;
+  uiPlane.addBehavior(grabBehavior);
 
-  typeWriterEffect(TAHAP_1_JUDUL, dialogTitle, scene, () => {
-    typeWriterEffect(TAHAP_1_BODY, dialogBody, scene, () => {
-      lanjutButton.isHitTestVisible = true;
-    });
-  });
+  typeWriterEffect(TAHAP_1_JUDUL, dialogTitle, scene, () => {
+    typeWriterEffect(TAHAP_1_BODY, dialogBody, scene, () => {
+      lanjutButton.isHitTestVisible = true;
+    });
+  });
 
-    return scene;
+    return scene;
 };
 
 // ================================
 // Jalankan Scene
 // ================================
 createScene().then(scene => {
-    engine.runRenderLoop(() => scene.render());
+    engine.runRenderLoop(() => scene.render());
 });
 
 window.addEventListener("resize", () => engine.resize());
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
