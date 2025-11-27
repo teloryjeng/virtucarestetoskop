@@ -823,7 +823,7 @@ function stopTubeSimulation() {
     // --- MODIFIKASI: Menggunakan IF untuk rotasi tegak ---
     if (thermometerMesh.parent) {
         // (0, Math.PI, 0) membuat objek tegak lurus dan menghadap ke belakang (ke arah user)
-        thermometerMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0);
+        thermometerMesh.rotation = new BABYLON.Vector3(0, Math.PI/2, 0);
     }
     // -----------------------------------------------------
 
@@ -1511,4 +1511,5 @@ createScene().then(scene => {
 });
 
 window.addEventListener("resize", () => engine.resize());
+
 
