@@ -875,7 +875,10 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
        
        // 7. Buat tombol selalu menghadap kamera
        buttonPlane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-
+        buttonPlane.metadata = { 
+           isInfoButton: true, 
+           action: () => showInfo(item) // Simpan fungsinya di sini
+       };
        // 8. Tambahkan aksi klik
        btn.onPointerClickObservable.add(() => {
          showInfo(item);
@@ -1215,3 +1218,4 @@ confirmationStack.addControl(finalButtonsContainer);
     // HAPUS: engine.runRenderLoop(...)
     // HAPUS: window.addEventListener("resize", ...)
 }
+
