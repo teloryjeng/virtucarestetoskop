@@ -1,12 +1,12 @@
-// js/interactions.js (Final: Intersection Fix)
+// js/interactions.js (Final: Manual Action Trigger)
 
 function setupVRInput(xr, scene) {
-    console.log("Menginisialisasi interaksi VR (Mode: Grip & Touch)...");
+    console.log("Menginisialisasi interaksi VR (Final: Manual UI Trigger)...");
 
     const highlightColor = new BABYLON.Color3.Green();
     const GRAB_DAMPING = 0.5;  
 
-    // Helper Gerakan
+    // Helper Gerakan Fisika
     const applyPhysicsMove = (mesh, targetPosition) => { 
         if (!mesh.physicsImpostor) return;
         const currentPos = mesh.getAbsolutePosition();
@@ -18,7 +18,7 @@ function setupVRInput(xr, scene) {
         mesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
     };
 
-    // --- MOUSE DRAG (Desktop - Tetap) ---
+    // --- MOUSE DRAG (Desktop - Tetap Sama) ---
     const hlMouse = new BABYLON.HighlightLayer("HL_MOUSE_PHYSICS", scene);
     scene.meshes.forEach((mesh) => {
         if (mesh.metadata && mesh.metadata.isGrabbable) {
@@ -46,7 +46,7 @@ function setupVRInput(xr, scene) {
             dragBehavior.onDragObservable.add((event) => currentMouseDragTarget = event.dragPlanePoint);
             dragBehavior.onDragEndObservable.add(() => {
                 if (currentMouseDragMesh && currentMouseDragMesh.physicsImpostor) {
-                    currentMouseDragMesh.physicsImpostor.linearDamping = 0; // Reset damping
+                    currentMouseDragMesh.physicsImpostor.linearDamping = 0; 
                     currentMouseDragMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                 }
                 if (mouseObserver) { scene.onBeforeRenderObservable.remove(mouseObserver); mouseObserver = null; }
@@ -55,7 +55,7 @@ function setupVRInput(xr, scene) {
         }
     });
 
-    // --- VR GRAB (LOGIKA UTAMA) ---
+    // --- VR GRAB & INTERAKSI (LOGIKA UTAMA) ---
     if (!xr) return;
 
     const hlVR = new BABYLON.HighlightLayer("HL_VR_PHYSICS", scene);
@@ -83,34 +83,54 @@ function setupVRInput(xr, scene) {
             
             const hand = controller.grip || controller.pointer; 
 
-            grabComponent.onButtonStateChangedObservable.add((state) => {
-                
-                // JIKA DITEKAN
-                if (state.pressed) {
-
-                    // 1. CEK KONFLIK UI (Hanya jika pakai Trigger)
-                    if (forcedTrigger) {
+            // --- 1. LOGIKA TRIGGER (KHUSUS UI) ---
+            // Kita pisahkan event Trigger agar selalu responsif untuk UI
+            if (triggerComponent) {
+                triggerComponent.onButtonStateChangedObservable.add((state) => {
+                    if (state.pressed) {
+                        // Tembakkan Laser Khusus UI
                         const ray = controller.getForwardRay(10);
                         const uiHit = scene.pickWithRay(ray, (m) => m.name && m.name.startsWith("btn_plane_") && m.isEnabled() && m.isVisible);
-                        if (uiHit && uiHit.hit) return; 
+                        
+                        // JIKA KENA TOMBOL:
+                        if (uiHit && uiHit.hit) {
+                            console.log("🎯 Tombol UI Terdeteksi & Ditekan Manual!");
+                            
+                            // EXECUTE MANUAL: Panggil fungsi showInfo langsung!
+                            if (uiHit.pickedMesh.metadata && uiHit.pickedMesh.metadata.action) {
+                                uiHit.pickedMesh.metadata.action(); 
+                            }
+                            return; // Stop, jangan lakukan hal lain
+                        }
+                    }
+                });
+            }
+
+            // --- 2. LOGIKA GRAB (Grip / Squeeze) ---
+            grabComponent.onButtonStateChangedObservable.add((state) => {
+                
+                if (state.pressed) {
+                    // Safety: Jika pakai Trigger (forced), cek UI dulu biar gak bentrok
+                    if (forcedTrigger) {
+                        const ray = controller.getForwardRay(10);
+                        const uiHit = scene.pickWithRay(ray, (m) => m.name && m.name.startsWith("btn_plane_"));
+                        if (uiHit && uiHit.hit) return; // Prioritas UI, jangan grab
                     }
 
-                    // 2. CARI BARANG TERDEKAT (METODE BARU: Intersection & Distance)
                     if (grabbedMesh) return;
 
+                    // Logika Intersection & Jarak (Agar mudah grab barang)
                     let closestMesh = null;
-                    // Jarak toleransi diperbesar jadi 0.4 (40cm) agar lebih mudah kena
-                    let minDistance = 0.4; 
+                    let minDistance = 0.4; // Toleransi 40cm
 
                     scene.meshes.forEach((mesh) => {
                         if (mesh.metadata && mesh.metadata.isGrabbable) {
                             const handPos = hand.getAbsolutePosition();
                             
-                            // A. Cek Jarak ke Pusat (Backup)
+                            // A. Cek Jarak Pusat
                             let dist = BABYLON.Vector3.Distance(mesh.getAbsolutePosition(), handPos);
                             
-                            // B. Cek Apakah Tangan ADA DI DALAM Kotak (Lebih Akurat)
-                            // Walaupun isPickable=false, BoundingBox tetap ada.
+                            // B. Cek Sentuhan Kotak (Paling Akurat)
                             if (mesh.getBoundingInfo().boundingBox.intersectsPoint(handPos)) {
                                 dist = 0; // Prioritas utama: Tangan di dalam barang
                             }
@@ -125,17 +145,14 @@ function setupVRInput(xr, scene) {
                     if (closestMesh) {
                         grabbedMesh = closestMesh;
                         
-                        // Highlight Visual
                         const childModel = grabbedMesh.getChildren()[0];
                         if (childModel) childModel.getChildMeshes(false).forEach(m => hlVR.addMesh(m, highlightColor));
 
-                        // Physics Setup
                         if (grabbedMesh.physicsImpostor) {
                             grabbedMesh.physicsImpostor.wakeUp();
                             originalDamping.linear = grabbedMesh.physicsImpostor.linearDamping;
                             originalDamping.angular = grabbedMesh.physicsImpostor.angularDamping;
                             
-                            // Rem kuat agar tidak melayang
                             grabbedMesh.physicsImpostor.linearDamping = GRAB_DAMPING; 
                             grabbedMesh.physicsImpostor.angularDamping = GRAB_DAMPING;
                             grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
@@ -148,7 +165,7 @@ function setupVRInput(xr, scene) {
                     }
 
                 } else {
-                    // JIKA DILEPAS
+                    // LEPAS (RELEASE)
                     if (grabbedMesh) {
                         if (grabObserver) {
                             scene.onBeforeRenderObservable.remove(grabObserver);
