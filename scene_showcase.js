@@ -468,7 +468,7 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
   
         // 6. Atur 'grabbable' pada WRAPPER (jika perlu)
         if (isGrabbable){
-          wrapper.isPickable = true; 
+          wrapper.isPickable = false; 
           wrapper.metadata = { isGrabbable: true, itemData: itemData };
         }
   
@@ -1218,4 +1218,5 @@ confirmationStack.addControl(finalButtonsContainer);
     // HAPUS: engine.runRenderLoop(...)
     // HAPUS: window.addEventListener("resize", ...)
 }
+
 
