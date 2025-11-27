@@ -1,13 +1,12 @@
-// js/interactions.js (Final: Dead Drop / Jatuh Tegak Lurus)
+// js/interactions.js (Final: UI Priority Fix)
 
 function setupVRInput(xr, scene) {
-    console.log("Menginisialisasi interaksi grab (Dead Drop Release)...");
+    console.log("Menginisialisasi interaksi grab (Prioritas UI)...");
 
     const highlightColor = new BABYLON.Color3.Green();
     
     // --- KONFIGURASI ---
     const MOVE_FORCE = 40;     
-    const ROTATE_FORCE = 10;   
     const GRAB_DAMPING = 0.5;  
 
     // Variabel state Mouse
@@ -18,15 +17,15 @@ function setupVRInput(xr, scene) {
     let originalAngularDamping = 0;
 
     // ============================================================
-    // FUNGSI HELPER: GERAKAN FISIKA
+    // FUNGSI HELPER: GERAKAN FISIKA (HANYA ATUR POSISI, KUNCI ROTASI)
     // ============================================================
-    const applyPhysicsMove = (mesh, targetPosition, targetRotationQuat) => {
+    const applyPhysicsMove = (mesh, targetPosition, targetRotationQuat) => { 
         if (!mesh.physicsImpostor) return;
 
         const body = mesh.physicsImpostor.physicsBody;
         if (!body) return;
 
-        // 1. POSISI
+        // 1. POSISI (Mengikuti posisi target)
         const currentPos = mesh.getAbsolutePosition();
         const diff = targetPosition.subtract(currentPos);
         const distance = diff.length();
@@ -44,25 +43,13 @@ function setupVRInput(xr, scene) {
 
         mesh.physicsImpostor.setLinearVelocity(velocity);
 
-        // 2. ROTASI
-        if (targetRotationQuat && mesh.rotationQuaternion) {
-            const qDiff = targetRotationQuat.multiply(BABYLON.Quaternion.Inverse(mesh.rotationQuaternion));
-            const { x, y, z } = qDiff.toEulerAngles();
-
-            const fixAngle = (angle) => {
-                if (angle > Math.PI) return angle - 2 * Math.PI;
-                if (angle < -Math.PI) return angle + 2 * Math.PI;
-                return angle;
-            };
-
-            const angVel = new BABYLON.Vector3(fixAngle(x), fixAngle(y), fixAngle(z));
-            mesh.physicsImpostor.setAngularVelocity(angVel.scale(ROTATE_FORCE));
-        }
+        // 2. ROTASI: KUNCI (Pastikan tidak ada momentum putar dari gerakan tangan)
+        mesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
     };
 
 
     // ============================================================
-    // 1. MOUSE DRAG (Desktop)
+    // 1. MOUSE DRAG (Desktop) - Tidak berubah
     // ============================================================
     const hlMouse = new BABYLON.HighlightLayer("HL_MOUSE_PHYSICS", scene);
     scene.meshes.forEach((mesh) => {
@@ -91,7 +78,7 @@ function setupVRInput(xr, scene) {
                 }
                 mouseObserver = scene.onBeforeRenderObservable.add(() => {
                     if (currentMouseDragMesh && currentMouseDragTarget) {
-                        applyPhysicsMove(currentMouseDragMesh, currentMouseDragTarget, null);
+                        applyPhysicsMove(currentMouseDragMesh, currentMouseDragTarget, null); 
                     }
                 });
             });
@@ -105,7 +92,7 @@ function setupVRInput(xr, scene) {
                     currentMouseDragMesh.physicsImpostor.linearDamping = originalDamping;
                     currentMouseDragMesh.physicsImpostor.angularDamping = originalAngularDamping;
                     
-                    // --- MATIKAN KECEPATAN (MOUSE) ---
+                    // --- MATIKAN KECEPATAN ---
                     currentMouseDragMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                     currentMouseDragMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                 }
@@ -147,19 +134,53 @@ function setupVRInput(xr, scene) {
                     // --- GRAB START ---
                     if (grabbedMesh) return; 
 
-                    // 1. CEK UI (Raycast Filter)
+                    // ==================================================
+                    // 1. PENGECEKAN UI (PRIORITAS UTAMA)
+                    // ==================================================
+                    let isInteractingWithUI = false;
+
+                    // A. Cek Raycast (Sinar Laser)
                     const ray = controller.getForwardRay(5); 
                     const hitInfo = scene.pickWithRay(ray, (mesh) => {
-                        return mesh.name.startsWith("btn_plane_") || mesh.name.startsWith("btn_gui_");
+                        // Cek apakah mesh adalah tombol UI (nama dimulai dengan btn_plane_)
+                        return mesh.name && mesh.name.startsWith("btn_plane_");
                     });
 
                     if (hitInfo && hitInfo.hit) {
-                        return; 
+                        console.log("UI Hit (Raycast) - Grab dibatalkan");
+                        isInteractingWithUI = true;
                     }
 
-                    // 2. Logika Jarak
+                    // B. Cek Jarak Proximity ke Tombol UI (PENTING!)
+                    // Jika raycast meleset sedikit, tapi tangan sangat dekat dengan tombol,
+                    // kita anggap user ingin menekan tombol, bukan mengambil barang di belakangnya.
+                    if (!isInteractingWithUI) {
+                        // Cari tombol terdekat
+                        let closestUiDist = 999;
+                        scene.meshes.forEach((m) => {
+                            if (m.name && m.name.startsWith("btn_plane_") && m.isEnabled()) {
+                                const dist = BABYLON.Vector3.Distance(m.getAbsolutePosition(), hand.getAbsolutePosition());
+                                if (dist < closestUiDist) closestUiDist = dist;
+                            }
+                        });
+
+                        // Jika tangan berada dalam radius 20cm dari tombol mana pun
+                        if (closestUiDist < 0.20) {
+                            console.log("UI Proximity (Dekat Tombol) - Grab dibatalkan");
+                            isInteractingWithUI = true;
+                        }
+                    }
+
+                    // JIKA SEDANG INTERAKSI DENGAN UI, JANGAN GRAB!
+                    if (isInteractingWithUI) {
+                        return; 
+                    }
+                    // ==================================================
+
+
+                    // 2. Logika Grab Barang (Jika lolos cek UI)
                     let closestMesh = null;
-                    let minDistance = 0.25; 
+                    let minDistance = 0.25; // Jarak grab barang
 
                     scene.meshes.forEach((mesh) => {
                         if (mesh.metadata && mesh.metadata.isGrabbable) {
@@ -191,6 +212,7 @@ function setupVRInput(xr, scene) {
                             grabbedMesh.physicsImpostor.linearDamping = GRAB_DAMPING; 
                             grabbedMesh.physicsImpostor.angularDamping = GRAB_DAMPING;
 
+                            // Matikan kecepatan awal
                             grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
                             grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                         }
@@ -200,7 +222,7 @@ function setupVRInput(xr, scene) {
                                 applyPhysicsMove(
                                     grabbedMesh, 
                                     hand.getAbsolutePosition(), 
-                                    hand.rotationQuaternion 
+                                    null 
                                 );
                             }
                         });
@@ -217,11 +239,8 @@ function setupVRInput(xr, scene) {
                             grabbedMesh.physicsImpostor.linearDamping = vrOriginalDamping;
                             grabbedMesh.physicsImpostor.angularDamping = vrOriginalAngularDamping; 
 
-                            // --- BAGIAN INI YANG DIPERBAIKI (DEAD DROP) ---
-                            // Paksa kecepatan menjadi NOL (Berhenti total di udara lalu jatuh karena gravitasi)
+                            // Paksa kecepatan menjadi NOL (Jatuh tegak lurus)
                             grabbedMesh.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
-                            
-                            // Paksa putaran berhenti juga
                             grabbedMesh.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
                         }
 
@@ -233,5 +252,5 @@ function setupVRInput(xr, scene) {
         });
     });
 
-    console.log("✅ Logika grab Dead Drop (Jatuh Tegak) diinisialisasi.");
+    console.log("✅ Logika grab Rotasi Terkunci (Priority UI) diinisialisasi.");
 }
