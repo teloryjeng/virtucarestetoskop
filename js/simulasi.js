@@ -44,7 +44,6 @@ const createScene = async function () {
     let chestpieceMesh = null; // Mesh chestpiece yang terpisah
     // VARIABEL BARU UNTUK ATTACH STETOSKOP
     let isStethoscopeAttached = false; // Status apakah stetoskop sedang terpasang ke kamera
-    let isStethoscopeSnapped = false;
     let rightVRController = null; // Untuk menyimpan controller kanan
     let stethoscopeTube = null;   // Mesh tali stetoskop
     let tubeUpdateObserver = null;
@@ -181,7 +180,7 @@ const createScene = async function () {
                              
                                 // Cek Stetoskop
                                 if (isStethoscopeAttached) {
-                                    releaseStethoscopeInPlace(); 
+                                    // Logic release hanya dijalankan saat interaksi selesai atau jika user melepaskannya sebelum interaksi
                                 }
                                  
                                 // Cek Termometer (TAMBAHAN BARU)
@@ -516,77 +515,57 @@ if (tensimeterMesh.dragBehavior) {
         // SEMBUNYIKAN DI AWAL (Hanya muncul saat dipegang)
         findAllMeshesAndSetVisibility(chestpieceMesh, false);
         
+        // >>> LOGIKA INTERAKSI STETOSKOP DENGAN SNAPPING BARU <<<
         chestTarget.actionManager.registerAction(
-    new BABYLON.ExecuteCodeAction(
-        { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: chestpieceMesh }, 
-        function () {
-            // Jalankan hanya jika stetoskop sedang dipegang (attached) DAN belum diproses
-            if (isStethoscopeAttached && !isProcessing && !isStethoscopeSnapped) {
-                isProcessing = true;
-                isStethoscopeSnapped = true; // Tandai sedang menempel
-
-                console.log("SNAP! Stetoskop menempel di dada.");
-
-                // --- 1. LOGIKA SNAP (MENEMPEL) ---
-                // Lepas dari tangan/kamera
-                chestpieceMesh.setParent(null);
-                
-                // Tempelkan (Parent) ke target dada agar ikut bergerak jika pasien bergerak
-                chestpieceMesh.setParent(chestTarget);
-                
-                // Reset posisi & rotasi agar pas di titik target
-                chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0); 
-                // Sesuaikan rotasi ini agar chestpiece menghadap ke atas/luar (mungkin perlu disesuaikan nilainya)
-                chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI, 0, 0); 
-
-                // --- 2. AUDIO & VISUAL ---
-                setTimeout(() => {
-                    const BPM = (80).toFixed(0); // Contoh BPM normal
-                    StethoText.text = `${BPM} BPM`;
-                    StethoText.isVisible = true;
-                    heartbeatSound.play(); // Mainkan suara
-
-                    // Tampilkan Gambar Billboard
-                    createPngBillboard(
-                        "image2", 
-                        "DetakJantung.png", 
-                        new BABYLON.Vector3(-17.5, 2.5, 28.15), 
-                        1, 
-                        scene
-                    );
-
-                    // --- 3. AUTO-RELEASE SETELAH SELESAI (Opsional tapi disarankan) ---
-                    // Setelah 3 detik, stetoskop kembali ke tangan user (agar tidak nyangkut selamanya)
-                    setTimeout(() => {
-                        StethoText.isVisible = false;
-                        heartbeatSound.stop();
+            new BABYLON.ExecuteCodeAction(
+                { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: chestpieceMesh },  
+                function () {
+                    if (!isProcessing && !isHeartbeatPlaying && isStethoscopeAttached) {
                         
-                        // Kembalikan ke Tangan / Kamera
-                        isStethoscopeSnapped = false;
+                        // 1. SNAP: Lepas dari controller dan tempel ke target (mempertahankan tali)
+                        // stopTubeSimulation(); // Baris ini DIHAPUS agar tali tetap jalan
+                        chestpieceMesh.setParent(null); // Detach dari Controller
+                        chestpieceMesh.setParent(chestTarget); // SNAP ke Target
                         
-                        let parentTarget = null;
-                        if (rightVRController) {
-                            parentTarget = rightVRController.grip || rightVRController.pointer;
-                        } else {
-                            parentTarget = getActiveCamera();
-                        }
+                        // Reset posisi dan rotasi lokal agar pas di tengah target
+                        chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0); 
+                        chestpieceMesh.rotationQuaternion = null;
+                        // Rotasi agar chestpiece menghadap ke atas/depan
+                        chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI / 2, 0, 0); 
+                        
+                        // Nonaktifkan pickable saat sudah snap
+                        setHierarchicalPickable(chestpieceMesh, false); 
+                        
+                        isProcessing = true;
+                        
+                        // Jeda 1 detik sebelum suara dimulai
+                        setTimeout(() => {
+                            const BPM = (50).toFixed(1);
+                            StethoText.text = `${BPM} BPM`;
+                            StethoText.isVisible = true;
+                            // Tambahkan gambar 2
+                            createPngBillboard(
+                                "image2", 
+                                "DetakJantung.png", 
+                                new BABYLON.Vector3(-17.5, 2.5, 28.15), // Posisi y sedikit dinaikkan
+                                1, 
+                                scene
+                            );
 
-                        if (parentTarget) {
-                            chestpieceMesh.setParent(parentTarget);
-                            // Kembalikan posisi 'enak' di tangan
-                            chestpieceMesh.position = new BABYLON.Vector3(0, 0, 0.05); 
-                            chestpieceMesh.rotation = new BABYLON.Vector3(Math.PI/2, 0, 0);
-                        }
-
-                        isProcessing = false;
-                        console.log("Pemeriksaan Selesai. Kembali ke tangan.");
-                    }, 3000); // Durasi pemeriksaan 3 detik
-
-                }, 500); // Delay sedikit sebelum muncul angka
-            }
-        }
-    )
-    );
+                            setTimeout(() => {
+                                StethoText.isVisible = false;
+                                isProcessing = false;
+                                
+                                // 2. UN-SNAP: Lepas dari target dan kembalikan ke meja
+                                chestpieceMesh.setParent(null); // Lepas dari target
+                                releaseStethoscopeInPlace(); // Panggil fungsi yang mengembalikan stetoskop ke posisi semula
+                            }, 2000);
+                        }, 1000);
+                    }
+                }
+            )
+        );
+        // <<< AKHIR LOGIKA INTERAKSI STETOSKOP DENGAN SNAPPING BARU >>>
     });
     // =====================================
     // FUNGSI UTILITY BARU UNTUK VISIBILITAS
@@ -614,16 +593,17 @@ if (tensimeterMesh.dragBehavior) {
         return xr && xr.baseExperience.state === BABYLON.WebXRState.IN_XR ? xr.baseExperience.camera : camera;
     }
     function updateTubeLogic() {
-    if (!isStethoscopeAttached && !isStethoscopeSnapped) return;
+    if (!isStethoscopeAttached) return; 
 
     const activeCam = getActiveCamera();
     // Titik Awal: Sedikit di bawah kamera (leher)
     const startPoint = activeCam.position.add(new BABYLON.Vector3(0, -0.3, 0)); 
 
-    // Titik Akhir: Ke Chestpiece yang ada di tangan
+    // Titik Akhir: Ke Chestpiece (baik di tangan maupun di dada pasien)
     let endPoint;
     if (chestpieceMesh && chestpieceMesh.isVisible) {
-        endPoint = chestpieceMesh.absolutePosition;
+        // Menggunakan absolutePosition agar tali selalu mengikuti chestpiece
+        endPoint = chestpieceMesh.absolutePosition; 
     } else {
         // Fallback jika chestpiece error
         endPoint = stethoscopeMesh.absolutePosition;
@@ -741,7 +721,7 @@ function stopTubeSimulation() {
         chestpieceMesh.setEnabled(false); 
         chestpieceMesh.setParent(null);
 
-        // Ambil posisi terakhir tangan
+        // Ambil posisi terakhir tangan/dada
         const dropPosition = chestpieceMesh.absolutePosition.clone();
 
         // Pindahkan model utuh ke sana
@@ -794,8 +774,7 @@ function stopTubeSimulation() {
             newDragBehavior.zDragFactor = 1;
             newDragBehavior.detachCameraControls = true;
              
-            // --- [BAGIAN PENTING YANG HILANG TADI] ---
-            // Kita harus memasang lagi Listener: "Kalau di-grab, jalankan fungsi attach"
+            // --- [PASANG LISTENER GRAB BARU] ---
             newDragBehavior.onDragStartObservable.add(() => {
                 console.log("Stetoskop di-grab lagi!");
                 // Panggil fungsi attach yang sudah kita buat
@@ -869,7 +848,7 @@ function releaseThermometer() {
     thermometerMesh.setParent(null);
     thermometerMesh.position.copyFrom(dropPosition);
      
-    // Reset rotasi agar jatuh wajar (tegak lurus gravitasi)
+    // Reset rotasi agar jatuh wajar (teguk lurus gravitasi)
     thermometerMesh.rotationQuaternion = null;
     thermometerMesh.rotation = new BABYLON.Vector3(0, 0, 0);
 
@@ -1051,14 +1030,7 @@ function releaseTensimeter() {
             mesh.getScene()
         );
         // --- PERBAIKAN: AKTIFKAN KEMBALI DRAG BEHAVIOR ---
-        // Khusus untuk stetoskop, pasang lagi behavior-nya
-        if (mesh.name === "stethoscopeWrapper" || mesh === stethoscopeMesh) {
-            // Karena dragBehavior di-detach/dispose saat attach/release, kita perlu memastikan 
-            // kita membuat ulang logika drag behavior yang benar, bukan hanya melampirkan referensi lama.
-            // Logika re-arming dilakukan di dalam releaseStethoscopeInPlace() / releaseThermometer()
-            // Bagian ini hanya untuk reset murni, kita biarkan logic re-arm bekerja 1.5s setelah jatuh.
-        }
-        console.log(`[RESET] Item ${mesh.name} berhasil diatur ulang.`);
+        // Logika re-arming dilakukan di dalam releaseInPlace() / releaseThermometer()
     }
      
     function resetAllItems() {
@@ -1274,34 +1246,67 @@ function releaseTensimeter() {
         )
     );
      
-    // 2. Stetoskop ke Dada (Heartbeat Sound) - LOGIKA SUDAH DIPINDAHKAN KE CALLBACK chestpiece.glb (baris 340)
+    // 2. Stetoskop ke Dada (Heartbeat Sound) - LOGIKA SUDAH DIPINDAHKAN KE CALLBACK chestpiece.glb
 
     // 3. Tensimeter ke Lengan Kanan (Tekanan Darah)
     armTarget.actionManager.registerAction(
         new BABYLON.ExecuteCodeAction(
-            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: tensimeterMesh }, 
+            { trigger: BABYLON.ActionManager.OnIntersectionEnterTrigger, parameter: tensimeterMesh }, 
             function () {
-                if (!isProcessing) {
+                // Hanya jalankan jika:
+                // 1. Tidak sedang ada proses lain (isProcessing false)
+                // 2. Tensimeter sedang dipegang/attached (isTensimeterAttached true)
+                if (!isProcessing && isTensimeterAttached) {
                     isProcessing = true;
+                    console.log("Mengukur Tekanan Darah...");
+
+                    // A. SNAP LOGIC: Lepas dari Controller, Tempel ke Target
+                    tensimeterMesh.setParent(null); // Lepas dari tangan
+                    tensimeterMesh.setParent(armTarget); // Tempel ke Lengan (Target)
+
+                    // B. Atur Posisi & Rotasi Visual di Lengan
+                    // Reset posisi lokal ke 0,0,0 (tepat di tengah sphere target)
+                    tensimeterMesh.position = new BABYLON.Vector3(0, 0, 0); 
+                    
+                    // Reset Rotasi (Sesuaikan nilai Vector3 ini agar manset terlihat melingkar di lengan)
+                    tensimeterMesh.rotationQuaternion = null;
+                    tensimeterMesh.rotation = new BABYLON.Vector3(0, Math.PI, 0); 
+
+                    // Matikan sensor sentuh agar tidak bisa diambil paksa saat mengukur
+                    setHierarchicalPickable(tensimeterMesh, false);
+
+                    // C. Jeda Waktu Pengukuran (Misal 1 detik seolah memompa)
                     setTimeout(() => {
-                        const systolic = Math.floor(90);
-                        const diastolic = Math.floor(60);
+                        // Tampilkan Hasil Teks
+                        const systolic = 110; // Contoh hasil
+                        const diastolic = 70;
                         tensiText.text = `${systolic}/${diastolic} mmHg`;
                         tensiText.isVisible = true;
-                        // Tambahkan gambar 3
+
+                        // Tampilkan Gambar/Billboard
                         createPngBillboard(
-                            "image3", 
-                            "TekananDarah.png", 
-                            new BABYLON.Vector3(-17, 2, 28.15), 
-                            1, 
+                            "image3", 
+                            "TekananDarah.png", 
+                            new BABYLON.Vector3(-17, 2, 28.15), 
+                            1, 
                             scene
                         );
 
+                        // D. Selesai & Release (Setelah 2 detik hasil muncul)
                         setTimeout(() => {
                             tensiText.isVisible = false;
                             isProcessing = false;
-                        }, 2000);
-                    }, 1000);
+
+                            // Lepas parent dari armTarget
+                            tensimeterMesh.setParent(null);
+
+                            // Panggil fungsi releaseTensimeter() yang sudah ada
+                            // Fungsi ini akan mengaktifkan fisika (jatuh ke lantai/kasur) 
+                            // dan mengaktifkan kembali fitur grab setelah cooldown
+                            releaseTensimeter(); 
+
+                        }, 2000); // Durasi hasil terlihat
+                    }, 1000); // Durasi proses pengukuran
                 }
             }
         )
@@ -1470,7 +1475,7 @@ function releaseTensimeter() {
     if (currentState === 8) {
       dialogTitle.text = "";
       typeWriterEffect(TAHAP_8_BODY, dialogBody, scene, () => {
-         lanjutButton.textBlock.text = "Selesai";
+        lanjutButton.textBlock.text = "Selesai";
         lanjutButton.isHitTestVisible = true;
         lanjutButton.onPointerClickObservable.clear(); // Hapus listener lama
         lanjutButton.onPointerClickObservable.add(() => {
@@ -1478,7 +1483,7 @@ function releaseTensimeter() {
         });
       });
     }
-  }
+  } // Penutup fungsi handleLanjutClick() yang sudah diperiksa
 
   const grabBehavior = new BABYLON.SixDofDragBehavior();
   grabBehavior.allowMultiPointer = true;
