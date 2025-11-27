@@ -480,9 +480,16 @@ async function createShowcaseScene(scene, engine, xr,onStartSimulationCallback,o
             BABYLON.Tools.ToRadians(itemData.rotation.z)
           );
         }
-        
-        // 8. Kembalikan WRAPPER
-        return wrapper;
+        // === PERBAIKAN VITAL (HANTU MODE) ===
+      // Jadikan SEMUA mesh anak (model visual) TIDAK BISA DIPICK (Tembus Laser)
+      // Ini wajib agar laser bisa menembus barang dan menekan tombol UI di dalamnya/belakangnya.
+      result.meshes.forEach(m => {
+          m.isPickable = false; // Laser akan tembus pandang
+          m.checkCollisions = false; // Opsional: Matikan collision kamera jika mengganggu
+      });
+      
+      // Pastikan Wrapper juga unpickable
+      physicsWrapper.isPickable = false;
 
       } catch (e) {
         console.error(`Gagal memuat item (non-fisika) ${itemData.file}:`, e);
@@ -1218,5 +1225,6 @@ confirmationStack.addControl(finalButtonsContainer);
     // HAPUS: engine.runRenderLoop(...)
     // HAPUS: window.addEventListener("resize", ...)
 }
+
 
 
